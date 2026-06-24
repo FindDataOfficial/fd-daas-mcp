@@ -1,0 +1,36 @@
+goal: Multi-Folder YAML Dashboard
+source: goal/initial-goal/dashboard/dashbaord.md
+completed_at: "2026-06-16T16:30:00+08:00"
+summary: |
+  Evolved the dashboard from a single-file hardcoded default.yaml editor into a multi-file
+  discovery system. Created dashboard.yaml to configure directory scanning, built a file
+  discovery module, added auto-generated API routes per discovered file, and restructured
+  the frontend with a sidebar for file switching and a dual editor mode (rich schema-aware
+  editor for default.yaml, generic YAML editor with js-yaml for everything else).
+steps_completed:
+  - Created dashboard.yaml config defining scan directories and rich editor target
+  - Built dashboard/discovery.py with load_dashboard_config() and discover_yaml_files()
+  - Updated dashboard/main.py with new /api/files routes and backward-compat /api/config
+  - Wrote 17 discovery unit tests + 8 new API integration tests
+  - Restructured frontend with sidebar layout, file switching, and generic YAML editor
+  - Updated CLAUDE.md documentation
+outcome: |
+  Dashboard now auto-discovers 12 YAML files across diagram/, save/, and template/
+  directories. The sidebar lets users switch between files. default.yaml gets the
+  schema-aware Models/Databases rich editor; all other files get a YAML textarea
+  editor powered by js-yaml. All 37 tests pass (20 existing + 17 new). Backward
+  compatibility is preserved — existing scripts and API consumers continue to work.
+files_changed:
+  - dashboard.yaml
+  - dashboard/discovery.py
+  - dashboard/main.py
+  - dashboard/static/index.html
+  - test/conftest.py
+  - test/test_api.py
+  - test/test_discovery.py
+  - CLAUDE.md
+notes: |
+  The original default.yaml was deleted before this change (shown in git status).
+  Once a default.yaml is created, it will be auto-discovered and get the rich editor.
+  Future enhancements: per-file schema definitions, file create/delete from UI,
+  monaco-editor for large files, watch mode for live file discovery.

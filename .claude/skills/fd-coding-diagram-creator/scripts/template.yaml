@@ -1,0 +1,84 @@
+# ============================================
+# Class Diagram Output Template
+# ============================================
+# Example: diagram/order-system.yaml
+
+classes:
+  - name: Order
+    attributes:
+      - visibility: "-"
+        name: orderId
+        type: String
+      - visibility: "-"
+        name: customer
+        type: Customer
+      - visibility: "-"
+        name: items
+        type: List<OrderItem>
+      - visibility: "-"
+        name: status
+        type: String
+    methods:
+      - visibility: "+"
+        name: addItem
+        return_type: void
+        parameters:
+          - name: item
+            type: OrderItem
+      - visibility: "+"
+        name: calculateTotal
+        return_type: float
+        parameters: []
+      - visibility: "+"
+        name: submit
+        return_type: void
+        parameters: []
+
+  - name: OrderItem
+    attributes:
+      - visibility: "-"
+        name: product
+        type: Product
+      - visibility: "-"
+        name: quantity
+        type: int
+    methods:
+      - visibility: "+"
+        name: subtotal
+        return_type: float
+        parameters: []
+
+  - name: Customer
+    attributes:
+      - visibility: "-"
+        name: name
+        type: String
+      - visibility: "-"
+        name: email
+        type: String
+    methods: []
+
+relationships:
+  - type: composition
+    from: Order
+    to: OrderItem
+    label: "contains"
+    multiplicity:
+      from: "1"
+      to: "many"
+
+  - type: association
+    from: Order
+    to: Customer
+    label: "placed by"
+    multiplicity:
+      from: "many"
+      to: "1"
+
+  - type: association
+    from: OrderItem
+    to: Product
+    label: "references"
+    multiplicity:
+      from: "many"
+      to: "1"

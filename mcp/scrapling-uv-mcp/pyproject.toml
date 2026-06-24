@@ -1,0 +1,10 @@
+[project]
+name = "scrapling-uv-mcp"
+version = "0.1.0"
+description = "Scrapling MCP Server (uv-managed Python)"
+requires-python = ">=3.10"
+dependencies = [
+    "scrapling[fetchers]>=0.4.7",
+    "mcp>=1.0",
+    "sqlalchemy>=2.0",
+]

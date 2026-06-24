@@ -1,0 +1,22 @@
+Metadata-Version: 2.4
+Name: cli-anything-daas
+Version: 0.1.0
+Summary: CLI for multi-source data access — AKShare, World Bank, CKAN, Chinese Statistics
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: click>=8.0
+Requires-Dist: pandas>=1.0
+Requires-Dist: sqlalchemy>=1.4
+Requires-Dist: pyyaml>=6.0
+Provides-Extra: repl
+Requires-Dist: prompt_toolkit>=3.0; extra == "repl"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Provides-Extra: akshare
+Requires-Dist: akshare>=1.17.0; extra == "akshare"
+Provides-Extra: worldbank
+Requires-Dist: wbgapi>=1.1; extra == "worldbank"
+Provides-Extra: ckan
+Requires-Dist: ckanapi>=4.8; extra == "ckan"
+Dynamic: description-content-type
+Dynamic: requires-python

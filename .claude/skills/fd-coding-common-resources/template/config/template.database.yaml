@@ -1,0 +1,15 @@
+# ============================================
+# Single Database Entry Template
+# Paste only this block when defining one database.
+# ============================================
+
+- id: my-db
+  driver: postgresql
+  url: postgresql://user:pass@localhost:5432/mydb
+  # url_env: DATABASE_URL
+  pool:
+    min_size: 2
+    max_size: 10
+    timeout_seconds: 30
+  ssl_mode: require
+  auto_migrate: true

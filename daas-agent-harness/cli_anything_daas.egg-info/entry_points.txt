@@ -1,0 +1,2 @@
+[console_scripts]
+cli-anything-daas = cli_anything.daas.cli:cli

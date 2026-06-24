@@ -1,0 +1,1 @@
+i want to create dashboard automatically find and can eidt the yaml file in different folder, and automatically find create the router with folder.i can define the folder that i need find in a dashboard..yaml
