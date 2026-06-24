@@ -1,0 +1,365 @@
+# ============================================
+# MCP PAAS — Class Diagram
+# Designed from goal/clear-goal/PAAS/mcp.md
+# Covers Sub-goals 1, 2, and 3
+# ============================================
+
+classes:
+  - name: MCPServer
+    attributes:
+      - visibility: "-"
+        name: id
+        type: String
+      - visibility: "-"
+        name: name
+        type: String
+      - visibility: "-"
+        name: sourcePath
+        type: String
+      - visibility: "-"
+        name: entryPoint
+        type: String
+      - visibility: "-"
+        name: runtimeConfig
+        type: RuntimeConfig
+      - visibility: "-"
+        name: port
+        type: int
+      - visibility: "-"
+        name: healthUrl
+        type: String
+      - visibility: "-"
+        name: status
+        type: String
+      - visibility: "-"
+        name: processId
+        type: int
+    methods:
+      - visibility: "+"
+        name: toDict
+        return_type: Map<String, Object>
+        parameters: []
+      - visibility: "+"
+        name: fromDict
+        return_type: MCPServer
+        parameters:
+          - name: data
+            type: Map<String, Object>
+
+  - name: ServerRegistry
+    attributes:
+      - visibility: "-"
+        name: filePath
+        type: String
+      - visibility: "-"
+        name: servers
+        type: List<MCPServer>
+    methods:
+      - visibility: "+"
+        name: load
+        return_type: void
+        parameters: []
+      - visibility: "+"
+        name: save
+        return_type: void
+        parameters: []
+      - visibility: "+"
+        name: getServer
+        return_type: MCPServer
+        parameters:
+          - name: serverId
+            type: String
+      - visibility: "+"
+        name: addServer
+        return_type: void
+        parameters:
+          - name: server
+            type: MCPServer
+      - visibility: "+"
+        name: removeServer
+        return_type: void
+        parameters:
+          - name: serverId
+            type: String
+      - visibility: "+"
+        name: listServers
+        return_type: List<MCPServer>
+        parameters: []
+
+  - name: PortAllocator
+    attributes:
+      - visibility: "-"
+        name: startPort
+        type: int
+      - visibility: "-"
+        name: endPort
+        type: int
+      - visibility: "-"
+        name: allocatedPorts
+        type: Map<String, int>
+    methods:
+      - visibility: "+"
+        name: allocate
+        return_type: int
+        parameters:
+          - name: serverId
+            type: String
+      - visibility: "+"
+        name: release
+        return_type: void
+        parameters:
+          - name: serverId
+            type: String
+      - visibility: "+"
+        name: isAllocated
+        return_type: boolean
+        parameters:
+          - name: port
+            type: int
+      - visibility: "+"
+        name: availableCount
+        return_type: int
+        parameters: []
+
+  - name: LifecycleManager
+    attributes:
+      - visibility: "-"
+        name: registry
+        type: ServerRegistry
+      - visibility: "-"
+        name: portAllocator
+        type: PortAllocator
+      - visibility: "-"
+        name: runningProcesses
+        type: Map<String, Process>
+      - visibility: "-"
+        name: checkInterval
+        type: int
+      - visibility: "-"
+        name: logDir
+        type: String
+    methods:
+      - visibility: "+"
+        name: startServer
+        return_type: void
+        parameters:
+          - name: serverId
+            type: String
+      - visibility: "+"
+        name: stopServer
+        return_type: void
+        parameters:
+          - name: serverId
+            type: String
+      - visibility: "+"
+        name: restartServer
+        return_type: void
+        parameters:
+          - name: serverId
+            type: String
+      - visibility: "+"
+        name: getStatus
+        return_type: String
+        parameters:
+          - name: serverId
+            type: String
+      - visibility: "+"
+        name: checkHealth
+        return_type: HealthStatus
+        parameters:
+          - name: serverId
+            type: String
+      - visibility: "+"
+        name: collectLogs
+        return_type: String
+        parameters:
+          - name: serverId
+            type: String
+      - visibility: "+"
+        name: startHealthPolling
+        return_type: void
+        parameters: []
+      - visibility: "+"
+        name: stopHealthPolling
+        return_type: void
+        parameters: []
+
+  - name: NginxConfigManager
+    attributes:
+      - visibility: "-"
+        name: configDir
+        type: String
+      - visibility: "-"
+        name: templatePath
+        type: String
+    methods:
+      - visibility: "+"
+        name: generateConfig
+        return_type: void
+        parameters:
+          - name: server
+            type: MCPServer
+      - visibility: "+"
+        name: reload
+        return_type: void
+        parameters: []
+      - visibility: "+"
+        name: removeConfig
+        return_type: void
+        parameters:
+          - name: server
+            type: MCPServer
+      - visibility: "+"
+        name: validateConfig
+        return_type: boolean
+        parameters:
+          - name: server
+            type: MCPServer
+
+  - name: ServerRouter
+    attributes:
+      - visibility: "-"
+        name: registry
+        type: ServerRegistry
+      - visibility: "-"
+        name: lifecycleManager
+        type: LifecycleManager
+      - visibility: "-"
+        name: nginxManager
+        type: NginxConfigManager
+    methods:
+      - visibility: "+"
+        name: listServers
+        return_type: List<MCPServer>
+        parameters: []
+      - visibility: "+"
+        name: getServer
+        return_type: MCPServer
+        parameters:
+          - name: serverId
+            type: String
+      - visibility: "+"
+        name: deployServer
+        return_type: MCPServer
+        parameters:
+          - name: config
+            type: Map<String, Object>
+      - visibility: "+"
+        name: startServer
+        return_type: void
+        parameters:
+          - name: serverId
+            type: String
+      - visibility: "+"
+        name: stopServer
+        return_type: void
+        parameters:
+          - name: serverId
+            type: String
+      - visibility: "+"
+        name: getLogs
+        return_type: String
+        parameters:
+          - name: serverId
+            type: String
+
+  - name: DockerDeployer
+    attributes:
+      - visibility: "-"
+        name: dockerAvailable
+        type: boolean
+    methods:
+      - visibility: "+"
+        name: checkDocker
+        return_type: boolean
+        parameters: []
+      - visibility: "+"
+        name: generateDockerfile
+        return_type: void
+        parameters:
+          - name: server
+            type: MCPServer
+      - visibility: "+"
+        name: build
+        return_type: void
+        parameters:
+          - name: server
+            type: MCPServer
+      - visibility: "+"
+        name: run
+        return_type: void
+        parameters:
+          - name: server
+            type: MCPServer
+      - visibility: "+"
+        name: stop
+        return_type: void
+        parameters:
+          - name: server
+            type: MCPServer
+
+# ============================================
+# Relationships
+# ============================================
+
+relationships:
+  - type: composition
+    from: ServerRegistry
+    to: MCPServer
+    label: "owns"
+    multiplicity:
+      from: "1"
+      to: "many"
+
+  - type: composition
+    from: LifecycleManager
+    to: PortAllocator
+    label: "owns"
+    multiplicity:
+      from: "1"
+      to: "1"
+
+  - type: association
+    from: LifecycleManager
+    to: ServerRegistry
+    label: "reads from"
+    multiplicity:
+      from: "1"
+      to: "1"
+
+  - type: association
+    from: NginxConfigManager
+    to: ServerRegistry
+    label: "reads from"
+    multiplicity:
+      from: "1"
+      to: "1"
+
+  - type: association
+    from: ServerRouter
+    to: ServerRegistry
+    label: "manages"
+    multiplicity:
+      from: "1"
+      to: "1"
+
+  - type: association
+    from: ServerRouter
+    to: LifecycleManager
+    label: "controls"
+    multiplicity:
+      from: "1"
+      to: "1"
+
+  - type: dependency
+    from: ServerRouter
+    to: NginxConfigManager
+    label: "delegates proxy config to"
+
+  - type: association
+    from: DockerDeployer
+    to: LifecycleManager
+    label: "extends deployment mode of"
+    multiplicity:
+      from: "1"
+      to: "1"

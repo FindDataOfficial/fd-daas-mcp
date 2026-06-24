@@ -1,0 +1,16 @@
+# ============================================
+# Clear Goal Template
+# ============================================
+goal: <goal-title>
+source: .claude/skills/fd-coding-common-resources/goal/initial-goal/<filename>.md
+refined_at: <ISO 8601 timestamp>
+summary: |
+  <2-3 sentence summary of the refined goal>
+changes_made:
+  - <what changed from the original and why>
+steps_refined:
+  - <step 1>
+  - <step 2>
+open_questions:
+  - <anything still unresolved>
+notes: <optional, any insights from the discussion>

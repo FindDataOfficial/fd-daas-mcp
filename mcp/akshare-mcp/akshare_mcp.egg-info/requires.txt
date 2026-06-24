@@ -1,0 +1,5 @@
+fastmcp>=2.0
+akshare>=1.17.0
+pandas>=1.0
+sqlalchemy>=1.4
+click>=8.0

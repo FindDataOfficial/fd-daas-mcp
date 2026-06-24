@@ -1,0 +1,101 @@
+# ============================================
+# Page & Service Plan Template
+# ============================================
+
+system: <system-name>
+description: <one-line summary>
+
+pages:
+  - name: <PageName>
+    route: /<route>
+    description: <what the user can do on this page>
+    components:
+      - type: table
+        columns: [col1, col2]
+      - type: button
+        label: <ButtonLabel>
+        action: <action_name>
+      - type: badge
+        field: <field_name>
+        mapping:
+          value1: green
+          value2: gray
+    uses_schema:
+      - <EntityName>
+    uses_services:
+      - <ServiceName.methodName>
+    actions:
+      - name: <action_name>
+        label: <ActionLabel>
+        method: POST /api/<path>
+        confirm: true
+
+  - name: <FormPage>
+    route: /<route>/new
+    description: <create/edit form>
+    components:
+      - type: form
+        fields:
+          - name: <field_name>
+            type: text
+            required: true
+          - name: <field_name>
+            type: text
+            default: "<default_value>"
+      - type: button
+        label: Submit
+        action: submit
+    uses_schema:
+      - <EntityName>
+    uses_services:
+      - <ServiceName.methodName>
+    actions:
+      - name: submit
+        label: Submit
+        method: POST /api/<path>
+        redirect: /<redirect_route>
+
+  - name: <DetailPage>
+    route: /<route>/:id
+    description: <view details>
+    components:
+      - type: card
+        fields: [field1, field2]
+      - type: log_viewer
+        source: GET /api/<path>/:id/logs
+      - type: health_indicator
+        source: GET /api/<path>/:id/health
+        poll_interval: 30
+    uses_schema:
+      - <EntityName>
+    uses_services:
+      - <ServiceName.methodName>
+    actions:
+      - name: <action_name>
+      - name: <action_name>
+
+services:
+  - name: <ServiceName>
+    type: manager
+    description: <what this service does>
+    depends_on: []
+    uses_schema:
+      - <EntityName>
+    key_methods:
+      - <method1>
+      - <method2>
+
+  - name: <RouterName>
+    type: router
+    description: <API routes description>
+    depends_on:
+      - <ServiceName>
+    uses_schema:
+      - <EntityName>
+    endpoints:
+      - GET /api/<path>
+      - GET /api/<path>/:id
+      - POST /api/<path>
+    key_methods:
+      - <method1>
+      - <method2>

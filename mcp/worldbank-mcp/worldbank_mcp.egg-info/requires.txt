@@ -1,0 +1,4 @@
+fastmcp>=2.0
+sqlalchemy>=2.0
+pandas>=1.0
+requests>=2.28

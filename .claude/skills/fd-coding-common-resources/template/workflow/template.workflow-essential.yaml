@@ -1,0 +1,25 @@
+# ============================================
+# Single Workflow Template
+# Paste only this block when defining one workflow.
+# model_tier: high | middle | low  (fallback)
+# model_env:  override via env var  (optional, comment out if unused)
+# ============================================
+
+- id: my-workflow
+  description: What this workflow does
+  model_tier: middle
+  # model_env: WORKFLOW_MY_WORKFLOW_MODEL
+  phases:
+    - title: Phase One
+      detail: What happens in this phase
+    - title: Phase Two
+      detail: What happens in this phase
+    - title: Phase Three
+      detail: What happens in this phase
+  rules:
+    require_approval_before_implement: false
+    max_parallel_agents: 8
+    timeout_per_phase_seconds: 600
+  use_cases:
+    - describe use case 1
+    - describe use case 2

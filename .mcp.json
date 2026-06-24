@@ -1,0 +1,111 @@
+{
+  "mcpServers": {
+    "leader-mcp": {
+      "type": "stdio",
+      "command": "/Users/chengsishi/code/cli-anything/mcp/leader-mcp/.venv/bin/fastmcp",
+      "args": [
+        "run",
+        "server.py",
+        "--no-banner"
+      ],
+      "cwd": "/Users/chengsishi/code/cli-anything/mcp/leader-mcp"
+    },
+
+    "akshare-mcp": {
+      "type": "stdio",
+      "command": "/Users/chengsishi/code/cli-anything/mcp/akshare-mcp/.venv/bin/fastmcp",
+      "args": [
+        "run",
+        "server.py",
+        "--no-banner"
+      ],
+      "cwd": "/Users/chengsishi/code/cli-anything/mcp/akshare-mcp"
+    },
+
+    "cron-mcp": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/Users/chengsishi/code/cli-anything/mcp/cron-mcp",
+        "python",
+        "server.py"
+      ]
+    },
+
+    "scrapling-uv-mcp": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/Users/chengsishi/code/cli-anything/mcp/scrapling-uv-mcp",
+        "python",
+        "server.py"
+      ]
+    },
+
+    "scrapling-docker-mcp": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "scrapling-mcp"
+      ]
+    },
+
+    "ckan-mcp": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/Users/chengsishi/code/cli-anything/mcp/ckan-mcp",
+        "fastmcp",
+        "run",
+        "server.py",
+        "--no-banner"
+      ],
+      "env": {
+        "DAAS_DATABASE_URL": "sqlite:///../daas.db"
+      }
+    },
+
+    "cnstats-mcp": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/Users/chengsishi/code/cli-anything/mcp/cnstats-mcp",
+        "fastmcp",
+        "run",
+        "server.py",
+        "--no-banner"
+      ],
+      "env": {
+        "DAAS_DATABASE_URL": "sqlite:///../daas.db"
+      }
+    },
+
+    "worldbank-mcp": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/Users/chengsishi/code/cli-anything/mcp/worldbank-mcp",
+        "fastmcp",
+        "run",
+        "server.py",
+        "--no-banner"
+      ],
+      "env": {
+        "DAAS_DATABASE_URL": "sqlite:///../daas.db"
+      }
+    }
+  }
+}

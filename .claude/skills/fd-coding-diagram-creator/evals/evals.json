@@ -1,0 +1,46 @@
+{
+  "skill_name": "diagram-creator",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm about to build a user authentication system with login, registration, and password reset. Can you create a class diagram for it before I start coding? The key entities are: Users, Sessions, and email-based password reset tokens.",
+      "expected_output": "A class diagram YAML at diagram/auth-system.yaml with User, Session, and ResetToken classes, including attributes like email, passwordHash, token, expiry, and methods like register, login, validatePassword, isExpired. Relationships: Session belongs to User, ResetToken belongs to User.",
+      "files": [],
+      "assertions": [
+        {"id": "has_correct_classes", "description": "Diagram contains User, Session, and ResetToken classes"},
+        {"id": "has_auth_attributes", "description": "User has email and passwordHash; ResetToken has token and expiry"},
+        {"id": "has_auth_methods", "description": "User has register/login/validatePassword or equivalent"},
+        {"id": "has_relationships", "description": "Relationships link User→Session and User→ResetToken"},
+        {"id": "valid_yaml_schema", "description": "YAML has 'classes' and 'relationships' top-level keys"},
+        {"id": "referential_integrity", "description": "All relationship from/to refs match existing class names"}
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Look at the dashboard code in dashboard/ and create a class diagram for it. I want to understand how config.py and main.py relate to each other.",
+      "expected_output": "A class diagram at diagram/dashboard.yaml reverse-engineered from the actual dashboard code, showing classes/functions from config.py and main.py with their relationships.",
+      "files": ["dashboard/config.py", "dashboard/main.py"],
+      "assertions": [
+        {"id": "matches_actual_code", "description": "Classes reflect actual code in config.py and main.py"},
+        {"id": "has_config_representation", "description": "Config loading/saving from config.py is represented"},
+        {"id": "has_api_representation", "description": "FastAPI app/endpoints from main.py are represented"},
+        {"id": "valid_yaml_schema", "description": "YAML has 'classes' and 'relationships' top-level keys"},
+        {"id": "referential_integrity", "description": "All relationship from/to refs match existing class names"}
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Design the class structure for a simple shopping cart system. We need Products, a Cart that holds CartItems, and an Order that gets created when you check out. Each Product has a name, price, and stock quantity. The Cart should be able to add/remove items and calculate a total.",
+      "expected_output": "A class diagram at diagram/shopping-cart.yaml with Product, Cart, CartItem, Order classes. Cart composition→CartItem, CartItem association→Product, Order association→Cart.",
+      "files": [],
+      "assertions": [
+        {"id": "has_correct_classes", "description": "Diagram contains Product, Cart, CartItem, Order classes"},
+        {"id": "has_product_attributes", "description": "Product has name, price, stockQuantity attributes"},
+        {"id": "has_cart_methods", "description": "Cart has addItem/removeItem/calculateTotal methods"},
+        {"id": "has_correct_relationships", "description": "Cart composition→CartItem, CartItem→Product, Order→Cart"},
+        {"id": "valid_yaml_schema", "description": "YAML has 'classes' and 'relationships' top-level keys"},
+        {"id": "referential_integrity", "description": "All relationship from/to refs match existing class names"}
+      ]
+    }
+  ]
+}

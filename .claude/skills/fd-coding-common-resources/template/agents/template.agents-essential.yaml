@@ -1,0 +1,25 @@
+# ============================================
+# Single Agent Template
+# Paste only this block when defining one agent.
+# model_tier: high | middle | low  (fallback)
+# model_env:  override via env var  (optional, comment out if unused)
+# ============================================
+
+- id: my-agent
+  description: What this agent does
+  model_tier: middle
+  # model_env: AGENT_MY_AGENT_MODEL
+  tools:
+    - Read
+    - Write
+    - Edit
+    - Bash
+    - Glob
+    - Grep
+  rules:
+    max_turns: 20
+    timeout_seconds: 300
+    allow_parallel: true
+  use_cases:
+    - describe use case 1
+    - describe use case 2

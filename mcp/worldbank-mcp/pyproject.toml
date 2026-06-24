@@ -1,0 +1,15 @@
+[project]
+name = "worldbank-mcp"
+version = "0.1.0"
+description = "MCP Server for World Bank Open Data"
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp>=2.0",
+    "sqlalchemy>=2.0",
+    "pandas>=1.0",
+    "requests>=2.28",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"

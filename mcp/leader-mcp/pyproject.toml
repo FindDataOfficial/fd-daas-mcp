@@ -1,0 +1,21 @@
+[project]
+name = "leader-mcp"
+version = "0.1.0"
+description = "Multi-Harness Registry MCP Server"
+requires-python = ">=3.11"
+dependencies = [
+    "fastmcp>=2.0",
+    "sqlalchemy>=2.0",
+]
+
+[tool.setuptools]
+py-modules = [
+    "server",
+    "database",
+    "leader_database",
+    "leader_crew",
+    "registry_service",
+    "leader_tools",
+    "unified_models",
+    "migrate_registry",
+]
