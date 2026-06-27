@@ -57,7 +57,43 @@
 - Per-source factory — overkill, 4 sources don't need a factory
 - Plugin system — YAGNI, add when sources exceed ~10
 
-## 6. Registry Storage Script
+## 6. yfinance (Yahoo Finance)
+
+**Decision**: Use `yfinance` package, wrap with a `YFinanceAdapter` that follows the existing `SourceAdapter` interface.
+
+**Rationale**: yfinance is the de-facto Python library for Yahoo Finance data (stocks, ETFs, indices, crypto, currencies). It wraps Yahoo's reverse-engineered API and returns pandas DataFrames natively. Unlike AKShare (which has a function registry), yfinance is object-oriented (Ticker + methods). The adapter translates this into the DAAS function-call pattern by mapping ~16 Ticker methods to namespaced function names (`yfinance_info`, `yfinance_history`, etc.).
+
+**yfinance API surface**:
+
+| Method | DAAS Function | Returns |
+|--------|--------------|---------|
+| `yf.download()` | `yfinance_download` | DataFrame (OHLCV) |
+| `Ticker.history()` | `yfinance_history` | DataFrame (OHLCV) |
+| `Ticker.info` | `yfinance_info` | dict (company profile) |
+| `Ticker.financials` | `yfinance_financials` | DataFrame |
+| `Ticker.balance_sheet` | `yfinance_balance_sheet` | DataFrame |
+| `Ticker.cashflow` | `yfinance_cashflow` | DataFrame |
+| `Ticker.earnings` | `yfinance_earnings` | DataFrame |
+| `Ticker.recommendations` | `yfinance_recommendations` | DataFrame |
+| `Ticker.sustainability` | `yfinance_sustainability` | DataFrame (ESG) |
+| `Ticker.major_holders` | `yfinance_holders` | DataFrame |
+| `Ticker.actions` | `yfinance_actions` | DataFrame (dividends+splits) |
+| `Ticker.news` | `yfinance_news` | list[dict] |
+| `Ticker.calendar` | `yfinance_calendar` | dict |
+| `Ticker.analyst_price_targets` | `yfinance_analyst_price_targets` | DataFrame |
+| `Ticker.options` | `yfinance_options` | list[str] |
+| `yf.Search()` | `yfinance_search` | dict (quotes+news) |
+
+**Alternatives considered**:
+- Raw requests — Yahoo has no public API; yfinance handles the reverse-engineered endpoints
+- `pandas-datareader` — deprecated Yahoo support, yfinance is the maintained successor
+- `yfinance-mcp` (existing MCP server) — could reuse, but it has a different tool shape; building our own keeps the pattern consistent
+
+**MCP server**: Standalone `mcp/yfinance-mcp/` (mirrors `mcp/akshare-mcp/` exactly) — 5 tools: search, get_function_info, list_categories, list_functions, call_yfinance_function.
+
+**Registry integration**: Functions are hardcoded in the adapter (like worldbank), no live discovery needed. `store_registry.py` auto-discovers them via the adapter.
+
+## 7. Registry Storage Script
 
 **Decision**: `store_registry.py` script that calls `discover()` on all sources, builds the registry, and writes to both JSON and SQLite.
 

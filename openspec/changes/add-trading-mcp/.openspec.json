@@ -1,0 +1,13 @@
+{
+  "proposal": {"status": "done"},
+  "design": {"status": "done"},
+  "specs": {
+    "status": "done",
+    "files": [
+      "specs/trading-mcp-server/spec.md",
+      "specs/investor-personas/spec.md",
+      "specs/trading-pipeline/spec.md"
+    ]
+  },
+  "tasks": {"status": "done"}
+}

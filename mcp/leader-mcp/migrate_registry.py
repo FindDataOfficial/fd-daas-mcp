@@ -30,7 +30,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from unified_models import Function, FunctionColumn
+from models import Function, FunctionColumn
 
 logger = logging.getLogger(__name__)
 

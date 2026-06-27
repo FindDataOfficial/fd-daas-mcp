@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import func, or_
 
 from leader_database import get_leader_db, reset_leader_db
-from unified_models import Function, FunctionColumn
+from models import Function, FunctionColumn, DataSnapshot
 
 
 def list_harnesses() -> str:
@@ -244,6 +245,397 @@ def import_harness_registry(harness: str, registry_json_path: str) -> str:
     except Exception as e:
         session.rollback()
         return f"Error importing harness '{harness}': {e}"
+    finally:
+        session.close()
+
+
+# ============================================
+# Datasource management tools
+# ============================================
+
+
+def list_datasources(harness: Optional[str] = None) -> str:
+    """List all functions marked as datasources, grouped by harness.
+
+    Args:
+        harness: Optional harness name to filter by.
+    """
+    db = get_leader_db()
+    session = db.get_session()
+    try:
+        q = session.query(Function).filter(Function.is_datasource == True)
+        if harness:
+            q = q.filter(Function.harness == harness)
+        rows = q.order_by(Function.harness, Function.command).all()
+
+        if not rows:
+            scope = f"in '{harness}'" if harness else "across all harnesses"
+            return f"No datasources configured {scope}. Use toggle_datasource to mark functions as datasources."
+
+        lines = []
+        current_harness = None
+        for r in rows:
+            if r.harness != current_harness:
+                current_harness = r.harness
+                lines.append(f"\n[{current_harness}]")
+            enabled_str = "✓" if r.enabled else "✗"
+            fetched = r.last_fetched_at.strftime("%Y-%m-%d %H:%M") if r.last_fetched_at else "never"
+            lines.append(f"  [{enabled_str}] {r.command} | {r.category} | last: {fetched}")
+        return "\n".join(lines)
+    finally:
+        session.close()
+
+
+def toggle_datasource(
+    harness: str,
+    command: str,
+    enabled: Optional[bool] = None,
+    is_datasource: Optional[bool] = None,
+) -> str:
+    """Mark/unmark a function as a datasource and toggle its enabled state.
+
+    Args:
+        harness: Harness name (e.g., 'akshare').
+        command: Function command name.
+        enabled: Set the enabled state (True/False). Omit to leave unchanged.
+        is_datasource: Set is_datasource flag (True/False). Omit to leave unchanged.
+    """
+    db = get_leader_db()
+    session = db.get_session()
+    try:
+        func = (
+            session.query(Function)
+            .filter(Function.harness == harness, Function.command == command)
+            .first()
+        )
+        if func is None:
+            return f"Function '{command}' not found in harness '{harness}'."
+
+        changes = []
+        if is_datasource is not None:
+            func.is_datasource = is_datasource
+            changes.append(f"is_datasource={is_datasource}")
+        if enabled is not None:
+            func.enabled = enabled
+            changes.append(f"enabled={enabled}")
+
+        if not changes:
+            return f"No changes requested for '{command}'."
+
+        session.commit()
+        return (
+            f"Updated '{harness}/{command}': {', '.join(changes)}. "
+            f"Current state: is_datasource={func.is_datasource}, enabled={func.enabled}"
+        )
+    except Exception as e:
+        session.rollback()
+        return f"Error toggling datasource: {e}"
+    finally:
+        session.close()
+
+
+def save_snapshot(harness: str, command: str, params: str = "{}") -> str:
+    """Save structured row data from a function call as a snapshot.
+
+    Calls the function with given params, parses the result into JSON rows,
+    and upserts into data_snapshots. Updates last_fetched_at on the function.
+    Caps at 10000 rows.
+
+    Args:
+        harness: Harness name (e.g., 'akshare').
+        command: Function command name.
+        params: JSON string of parameters (e.g., '{"symbol":"000001"}').
+    """
+    import importlib
+
+    MAX_ROWS = 10000
+
+    db = get_leader_db()
+    session = db.get_session()
+    try:
+        func = (
+            session.query(Function)
+            .filter(Function.harness == harness, Function.command == command)
+            .first()
+        )
+        if func is None:
+            return f"Function '{command}' not found in harness '{harness}'."
+
+        params_dict = json.loads(params) if isinstance(params, str) else params
+
+        # Try to call the function via the harness adapter
+        data_json = None
+        row_count = 0
+        status = "error"
+        error_msg = None
+
+        try:
+            # Resolve and call the function
+            if harness == "akshare":
+                mod = importlib.import_module("akshare")
+                fn = getattr(mod, command, None)
+                if fn is None:
+                    return f"Function '{command}' not found in akshare module."
+                result = fn(**params_dict)
+            else:
+                return (
+                    f"Harness '{harness}' does not support live function calls yet. "
+                    f"Only 'akshare' is supported for save_snapshot."
+                )
+
+            # Convert result to JSON rows
+            if hasattr(result, "to_dict"):
+                data = result.to_dict(orient="records")
+            elif hasattr(result, "to_json"):
+                data = json.loads(result.to_json(orient="records"))
+            elif isinstance(result, list):
+                data = result
+            else:
+                return f"Unsupported result type: {type(result).__name__}"
+
+            if len(data) > MAX_ROWS:
+                return (
+                    f"Result has {len(data)} rows, exceeds max {MAX_ROWS}. "
+                    f"Add filters to reduce row count."
+                )
+
+            data_json = data
+            row_count = len(data)
+            status = "success"
+        except Exception as e:
+            error_msg = str(e)
+            data_json = [{"error": error_msg}]
+            status = "error"
+
+        # Upsert snapshot
+        params_key = json.dumps(params_dict, sort_keys=True, ensure_ascii=False)
+        snap = (
+            session.query(DataSnapshot)
+            .filter(
+                DataSnapshot.function_id == func.id,
+                DataSnapshot.params_json == params_dict,
+            )
+            .first()
+        )
+        if snap is None:
+            snap = DataSnapshot(function_id=func.id, params_json=params_dict)
+            session.add(snap)
+
+        snap.data_json = data_json
+        snap.row_count = row_count
+        snap.status = status
+        snap.fetched_at = datetime.now(timezone.utc)
+
+        # Update last_fetched_at on the function
+        func.last_fetched_at = snap.fetched_at
+
+        session.commit()
+        return (
+            f"Snapshot saved for '{harness}/{command}': "
+            f"{row_count} rows, status={status}"
+            + (f", error: {error_msg}" if error_msg else "")
+        )
+    except Exception as e:
+        session.rollback()
+        return f"Error saving snapshot: {e}"
+    finally:
+        session.close()
+
+
+def list_snapshots(
+    harness: Optional[str] = None, command: Optional[str] = None
+) -> str:
+    """List all stored data snapshots with metadata.
+
+    Args:
+        harness: Optional harness filter.
+        command: Optional command filter (requires harness).
+    """
+    db = get_leader_db()
+    session = db.get_session()
+    try:
+        q = (
+            session.query(DataSnapshot, Function)
+            .join(Function)
+        )
+        if harness:
+            q = q.filter(Function.harness == harness)
+        if command:
+            q = q.filter(Function.command == command)
+        rows = q.order_by(DataSnapshot.fetched_at.desc()).limit(100).all()
+
+        if not rows:
+            return "No snapshots found."
+
+        lines = []
+        for snap, func in rows:
+            fetched = snap.fetched_at.strftime("%Y-%m-%d %H:%M") if snap.fetched_at else "?"
+            lines.append(
+                f"[{snap.id}] {func.harness}/{func.command} | "
+                f"{snap.row_count} rows | {snap.status} | {fetched}"
+            )
+        return "\n".join(lines)
+    finally:
+        session.close()
+
+
+def query_snapshots(
+    snapshot_id: int, limit: int = 50, offset: int = 0
+) -> str:
+    """Return paginated data rows for a specific snapshot.
+
+    Args:
+        snapshot_id: ID of the snapshot to query.
+        limit: Max rows to return (default 50).
+        offset: Row offset for pagination (default 0).
+    """
+    db = get_leader_db()
+    session = db.get_session()
+    try:
+        snap = session.query(DataSnapshot).filter(DataSnapshot.id == snapshot_id).first()
+        if snap is None:
+            return f"Snapshot {snapshot_id} not found."
+
+        if snap.data_json is None:
+            return f"Snapshot {snapshot_id} has no data (status: {snap.status})."
+
+        rows = snap.data_json
+        total = len(rows)
+        page = rows[offset : offset + limit]
+
+        lines = [
+            f"Snapshot {snapshot_id} | {snap.status} | {total} rows total",
+            f"Showing rows {offset + 1}-{min(offset + limit, total)}:",
+            "",
+        ]
+        if page:
+            # Header row
+            headers = list(page[0].keys()) if page else []
+            lines.append(" | ".join(headers))
+            lines.append("-" * 80)
+            for row in page:
+                vals = [str(row.get(h, "")) for h in headers]
+                lines.append(" | ".join(vals))
+        else:
+            lines.append("(no rows)")
+
+        return "\n".join(lines)
+    finally:
+        session.close()
+
+
+# ============================================
+# Column provenance tools
+# ============================================
+
+
+def get_column_provenance(harness: str, command: str) -> str:
+    """Get all columns for a function with provenance fields.
+
+    Args:
+        harness: Harness name (e.g., 'akshare').
+        command: Function command name.
+    """
+    db = get_leader_db()
+    session = db.get_session()
+    try:
+        func = (
+            session.query(Function)
+            .filter(Function.harness == harness, Function.command == command)
+            .first()
+        )
+        if func is None:
+            return f"Function '{command}' not found in harness '{harness}'."
+
+        cols = (
+            session.query(FunctionColumn)
+            .filter(FunctionColumn.function_id == func.id)
+            .order_by(FunctionColumn.id)
+            .all()
+        )
+        if not cols:
+            return f"No columns defined for '{harness}/{command}'."
+
+        lines = [
+            f"Columns for {harness}/{command}:",
+            f"{'Name':<20} {'Type':<12} {'Source Field':<20} {'Unit':<10} {'Semantic':<12} Description",
+            "-" * 100,
+        ]
+        for c in cols:
+            lines.append(
+                f"{c.column_name:<20} "
+                f"{(c.column_type or ''):<12} "
+                f"{(c.source_field or ''):<20} "
+                f"{(c.unit or ''):<10} "
+                f"{(c.semantic_type or ''):<12} "
+                f"{c.column_description or ''}"
+            )
+        return "\n".join(lines)
+    finally:
+        session.close()
+
+
+def update_column_meta(
+    harness: str,
+    command: str,
+    column_name: str,
+    source_field: Optional[str] = None,
+    unit: Optional[str] = None,
+    semantic_type: Optional[str] = None,
+) -> str:
+    """Update provenance metadata for a specific column.
+
+    Only provided fields are updated; omitted fields are left unchanged.
+
+    Args:
+        harness: Harness name (e.g., 'akshare').
+        command: Function command name.
+        column_name: Name of the column to update.
+        source_field: API field name this column maps to.
+        unit: Unit of measurement (CNY, %, shares, etc.).
+        semantic_type: Semantic role (price, volume, date, name, code, etc.).
+    """
+    db = get_leader_db()
+    session = db.get_session()
+    try:
+        func = (
+            session.query(Function)
+            .filter(Function.harness == harness, Function.command == command)
+            .first()
+        )
+        if func is None:
+            return f"Function '{command}' not found in harness '{harness}'."
+
+        col = (
+            session.query(FunctionColumn)
+            .filter(
+                FunctionColumn.function_id == func.id,
+                FunctionColumn.column_name == column_name,
+            )
+            .first()
+        )
+        if col is None:
+            return f"Column '{column_name}' not found for '{harness}/{command}'."
+
+        changes = []
+        if source_field is not None:
+            col.source_field = source_field if source_field else None
+            changes.append(f"source_field={source_field}")
+        if unit is not None:
+            col.unit = unit if unit else None
+            changes.append(f"unit={unit}")
+        if semantic_type is not None:
+            col.semantic_type = semantic_type if semantic_type else None
+            changes.append(f"semantic_type={semantic_type}")
+
+        if not changes:
+            return f"No changes requested for column '{column_name}'."
+
+        session.commit()
+        return f"Updated column '{column_name}' in '{harness}/{command}': {', '.join(changes)}"
+    except Exception as e:
+        session.rollback()
+        return f"Error updating column meta: {e}"
     finally:
         session.close()
 

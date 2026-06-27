@@ -13,7 +13,14 @@ from __future__ import annotations
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
+
+ROOT = Path(__file__).resolve().parent.parent  # mcp/
+load_dotenv(ROOT / ".env")
+load_dotenv(Path(__file__).parent / ".env", override=True)
 
 from cli_anything.daas.core.exceptions import DAASError
 from fastmcp import FastMCP

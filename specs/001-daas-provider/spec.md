@@ -8,6 +8,8 @@
 
 **Input**: User description: "create a project in daas-provider to get data from opensource projects like akshare, also get data from opensource urls like world bank data, ckan, chinese statistics. output pandas, create cli and skills to use the data, save function and columns information in database, create a script to store and save them"
 
+**Amendment (2026-06-25)**: Add yfinance as a 5th data source (Yahoo Finance — global stock, ETF, crypto, forex data). Create `yfinance_source.py` adapter in daas-agent-harness and `mcp/yfinance-mcp/` standalone MCP server, following the exact same patterns as akshare.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Discover and search data functions across all sources (Priority: P1)
@@ -109,7 +111,7 @@ A developer wants to add a new data source (e.g., FRED, Eurostat) by implementin
 - **FR-007**: System MUST provide a `store_registry.py` script that discovers functions from all sources and upserts them into the registry
 - **FR-008**: System MUST provide an MCP server (`daas-mcp`) with tools: `list_sources`, `search_functions`, `get_function_detail`, `fetch_data`, `list_categories`
 - **FR-009**: System MUST provide a Claude Code skill (`cli-anything-daas`) for agent-driven data discovery and retrieval
-- **FR-010**: System MUST support at least 4 data sources: AKShare, World Bank, CKAN, Chinese National Statistics
+- **FR-010**: System MUST support at least 5 data sources: AKShare, Yahoo Finance, World Bank, CKAN, Chinese National Statistics
 - **FR-011**: System MUST allow new sources to be added by implementing a `SourceAdapter` base class
 - **FR-012**: System MUST integrate with leader-mcp unified registry via `import_harness_registry`
 - **FR-013**: System MUST handle missing optional dependencies gracefully (source shown as available but not installed)

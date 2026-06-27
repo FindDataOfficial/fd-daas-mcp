@@ -1,0 +1,13 @@
+[project]
+name = "yfinance-mcp"
+version = "0.1.0"
+description = "yfinance (Yahoo Finance) Global Market Data MCP Server"
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp>=2.0",
+    "yfinance>=0.2.0",
+    "pandas>=1.0",
+    "sqlalchemy>=1.4",
+    "click>=8.0",
+    "python-dotenv>=1.0",
+]

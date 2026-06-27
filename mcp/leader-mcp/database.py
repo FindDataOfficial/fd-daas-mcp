@@ -26,7 +26,7 @@ from typing import Optional
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from unified_models import Base
+from models import Base
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class Database:
     def __init__(self, database_url: Optional[str] = None):
         if database_url is None:
             database_url = os.environ.get(
-                "AKSHARE_DATABASE_URL",
+                "DAAS_DATABASE_URL",
                 f"sqlite:///{_DEFAULT_DB_PATH}",
             )
         self._database_url = database_url

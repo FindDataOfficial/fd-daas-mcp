@@ -10,7 +10,7 @@ from models import Base
 
 _DEFAULT_DB_PATH = Path(__file__).parent.parent / "daas.db"
 DATABASE_URL = os.environ.get(
-    "CRON_MCP_DATABASE_URL",
+    "DAAS_DATABASE_URL",
     f"sqlite:///{_DEFAULT_DB_PATH}",
 )
 

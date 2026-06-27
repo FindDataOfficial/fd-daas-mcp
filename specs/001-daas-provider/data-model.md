@@ -9,8 +9,8 @@ Represents a data source (akshare, worldbank, ckan, cnstats).
 | Field | Type | Constraints | Description |
 |-------|------|-------------|-------------|
 | id | INTEGER | PK, auto | Source ID |
-| name | TEXT | UNIQUE, NOT NULL | Source identifier: `akshare`, `worldbank`, `ckan`, `cnstats` |
-| label | TEXT | NOT NULL | Human-readable: "AKShare", "World Bank", "CKAN", "Chinese Statistics" |
+| name | TEXT | UNIQUE, NOT NULL | Source identifier: `akshare`, `yfinance`, `worldbank`, `ckan`, `cnstats` |
+| label | TEXT | NOT NULL | Human-readable: "AKShare", "Yahoo Finance", "World Bank", "CKAN", "Chinese Statistics" |
 | description | TEXT | | What data this source provides |
 | url | TEXT | | Source homepage or API base URL |
 | enabled | BOOLEAN | DEFAULT TRUE | Whether this source is active |

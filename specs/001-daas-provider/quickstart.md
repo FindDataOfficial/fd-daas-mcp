@@ -25,7 +25,7 @@ uv pip install akshare wbgapi ckanapi
 uv run cli-anything-daas list-sources
 ```
 
-**Expected**: Table of 4 sources (akshare, worldbank, ckan, cnstats) with enabled status.
+**Expected**: Table of 5 sources (akshare, yfinance, worldbank, ckan, cnstats) with enabled status.
 
 ### 2. CLI: Search for functions
 
@@ -36,7 +36,17 @@ uv run cli-anything-daas search 股票
 
 **Expected**: Matching functions across sources, with source, category, description.
 
-### 3. CLI: Call a function
+### 3. CLI: Yahoo Finance functions
+
+```bash
+uv run cli-anything-daas call yfinance_info symbol=AAPL
+uv run cli-anything-daas call yfinance_history symbol=MSFT period=1mo
+uv run cli-anything-daas --json call yfinance_download tickers=AAPL period=1mo
+```
+
+**Expected**: Company info dict, OHLCV DataFrame, or download DataFrame. Works without API key.
+
+### 4. CLI: Call a function (other sources)
 
 ```bash
 uv run cli-anything-daas call worldbank_gdp country=CN date=2020:2023
@@ -65,12 +75,13 @@ uv run python cli_anything/daas/scripts/store_registry.py
 
 **Expected**: `registry.json` and `daas_registry.db` populated with discovered functions and columns.
 
-### 6. Standalone MCP servers (ckan, cnstats, worldbank)
+### 5. Standalone MCP servers (yfinance, ckan, cnstats, worldbank)
 
 ```bash
-cd mcp/ckan-mcp && uv run python server.py      # CKAN: 5 functions
-cd mcp/cnstats-mcp && uv run python server.py    # CNStats: 8 functions
-cd mcp/worldbank-mcp && uv run python server.py   # World Bank: 20 functions
+cd mcp/yfinance-mcp && uv run python server.py    # Yahoo Finance: 16 functions
+cd mcp/ckan-mcp && uv run python server.py         # CKAN: 5 functions
+cd mcp/cnstats-mcp && uv run python server.py      # CNStats: 8 functions
+cd mcp/worldbank-mcp && uv run python server.py    # World Bank: 20 functions
 ```
 
 **Expected**: Each MCP stdio server starts, responds to `list_tools` with 5 tools: `search_functions`, `get_function_info`, `list_categories`, `list_functions`, `call_*_function`.

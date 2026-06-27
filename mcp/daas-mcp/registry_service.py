@@ -10,7 +10,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 
-from models import Function, FunctionColumn, Source
+from models import DaasFunction, DaasFunctionColumn, DaasSource
 
 
 class RegistryService:
@@ -20,12 +20,12 @@ class RegistryService:
         self._session = session
 
     def list_sources(self) -> list[dict]:
-        sources = self._session.query(Source).order_by(Source.name).all()
+        sources = self._session.query(DaasSource).order_by(DaasSource.name).all()
         result = []
         for s in sources:
             cnt = (
-                self._session.query(func.count(Function.id))
-                .filter(Function.source_id == s.id)
+                self._session.query(func.count(DaasFunction.id))
+                .filter(DaasFunction.source_id == s.id)
                 .scalar()
             )
             d = s.to_dict()
@@ -36,23 +36,23 @@ class RegistryService:
     def search_functions(self, query: str, source: Optional[str] = None, limit: int = 20) -> list[dict]:
         q = f"%{query}%"
         q_obj = (
-            self._session.query(Function)
-            .join(Source)
+            self._session.query(DaasFunction)
+            .join(DaasSource)
             .filter(
                 or_(
-                    Function.name.like(q),
-                    Function.category.like(q),
-                    Function.description.like(q),
+                    DaasFunction.name.like(q),
+                    DaasFunction.category.like(q),
+                    DaasFunction.description.like(q),
                 )
             )
         )
         if source:
-            q_obj = q_obj.filter(Source.name == source)
-        results = q_obj.order_by(Source.name, Function.name).limit(limit).all()
+            q_obj = q_obj.filter(DaasSource.name == source)
+        results = q_obj.order_by(DaasSource.name, DaasFunction.name).limit(limit).all()
         return [f.to_dict() for f in results]
 
     def get_function_detail(self, name: str) -> Optional[dict]:
-        func = self._session.query(Function).filter(Function.name == name).first()
+        func = self._session.query(DaasFunction).filter(DaasFunction.name == name).first()
         if func is None:
             return None
         return func.to_dict()
@@ -60,17 +60,17 @@ class RegistryService:
     def list_categories(self, source: Optional[str] = None) -> list[dict]:
         q = (
             self._session.query(
-                Source.name.label("source_name"),
-                Function.category,
-                func.count(Function.id).label("cnt"),
+                DaasSource.name.label("source_name"),
+                DaasFunction.category,
+                func.count(DaasFunction.id).label("cnt"),
             )
-            .join(Function.source)
+            .join(DaasFunction.source)
         )
         if source:
-            q = q.filter(Source.name == source)
+            q = q.filter(DaasSource.name == source)
         rows = (
-            q.group_by(Source.name, Function.category)
-            .order_by(Source.name, func.count(Function.id).desc())
+            q.group_by(DaasSource.name, DaasFunction.category)
+            .order_by(DaasSource.name, func.count(DaasFunction.id).desc())
             .all()
         )
         return [

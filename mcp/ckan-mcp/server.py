@@ -13,7 +13,18 @@ from __future__ import annotations
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
+
+ROOT = Path(__file__).resolve().parent.parent  # mcp/
+load_dotenv(ROOT / ".env")
+load_dotenv(Path(__file__).parent / ".env", override=True)
+
+# Ensure settings_helper is importable
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from fastmcp import FastMCP
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, create_engine, func, or_
@@ -191,6 +202,12 @@ def call_ckan_function(name: str, params_json: str = "{}") -> dict:
         params = json.loads(params_json) if params_json else {}
     except json.JSONDecodeError as e:
         return {"error": f"Invalid params_json: {e}"}
+
+    try:
+        from settings_helper import load_runtime_settings
+        load_runtime_settings('ckan-mcp')  # ensure proxy/CKAN_URL are current
+    except ImportError:
+        pass  # settings_helper not installed, use .env defaults
 
     try:
         import ckanapi

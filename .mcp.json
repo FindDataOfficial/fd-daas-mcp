@@ -10,7 +10,6 @@
       ],
       "cwd": "/Users/chengsishi/code/cli-anything/mcp/leader-mcp"
     },
-
     "akshare-mcp": {
       "type": "stdio",
       "command": "/Users/chengsishi/code/cli-anything/mcp/akshare-mcp/.venv/bin/fastmcp",
@@ -21,7 +20,6 @@
       ],
       "cwd": "/Users/chengsishi/code/cli-anything/mcp/akshare-mcp"
     },
-
     "cron-mcp": {
       "type": "stdio",
       "command": "uv",
@@ -33,7 +31,6 @@
         "server.py"
       ]
     },
-
     "scrapling-uv-mcp": {
       "type": "stdio",
       "command": "uv",
@@ -45,7 +42,6 @@
         "server.py"
       ]
     },
-
     "scrapling-docker-mcp": {
       "type": "stdio",
       "command": "docker",
@@ -56,7 +52,6 @@
         "scrapling-mcp"
       ]
     },
-
     "ckan-mcp": {
       "type": "stdio",
       "command": "uv",
@@ -68,12 +63,8 @@
         "run",
         "server.py",
         "--no-banner"
-      ],
-      "env": {
-        "DAAS_DATABASE_URL": "sqlite:///../daas.db"
-      }
+      ]
     },
-
     "cnstats-mcp": {
       "type": "stdio",
       "command": "uv",
@@ -85,12 +76,8 @@
         "run",
         "server.py",
         "--no-banner"
-      ],
-      "env": {
-        "DAAS_DATABASE_URL": "sqlite:///../daas.db"
-      }
+      ]
     },
-
     "worldbank-mcp": {
       "type": "stdio",
       "command": "uv",
@@ -102,9 +89,59 @@
         "run",
         "server.py",
         "--no-banner"
+      ]
+    },
+    "daas-mcp": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/Users/chengsishi/code/cli-anything/mcp/daas-mcp",
+        "fastmcp",
+        "run",
+        "server.py",
+        "--no-banner"
+      ]
+    },
+    "dashboard-mcp": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/Users/chengsishi/code/cli-anything/mcp/dashboard-mcp",
+        "fastmcp",
+        "run",
+        "server.py",
+        "--no-banner"
+      ]
+    },
+    "yfinance-mcp": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/Users/chengsishi/code/cli-anything/mcp/yfinance-mcp",
+        "python",
+        "server.py"
+      ]
+    },
+    "combine-mcp": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/Users/chengsishi/code/cli-anything/mcp/combine-mcp",
+        "fastmcp",
+        "run",
+        "server.py",
+        "--no-banner"
       ],
       "env": {
-        "DAAS_DATABASE_URL": "sqlite:///../daas.db"
+        "COMPOSITE": "example"
       }
     }
   }

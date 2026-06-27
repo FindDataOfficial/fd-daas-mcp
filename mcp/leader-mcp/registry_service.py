@@ -27,7 +27,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from unified_models import Function, FunctionColumn
+from models import Function, FunctionColumn
 
 logger = logging.getLogger(__name__)
 

@@ -22,7 +22,7 @@ from typing import Optional
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from unified_models import Base
+from models import Base
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +32,14 @@ _DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "daas.db"
 class LeaderDatabase:
     """SQLAlchemy engine + session factory for the unified multi-harness DB.
 
-    Reads LEADER_MCP_DATABASE_URL env var; defaults to SQLite at mcp/daas.db.
+    Reads DAAS_DATABASE_URL env var; defaults to SQLite at mcp/daas.db.
     """
 
     def __init__(self, database_url: Optional[str] = None):
         if database_url is None:
             _DEFAULT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
             database_url = os.environ.get(
-                "LEADER_MCP_DATABASE_URL",
+                "DAAS_DATABASE_URL",
                 f"sqlite:///{_DEFAULT_DB_PATH}",
             )
         self._database_url = database_url
@@ -75,7 +75,44 @@ class LeaderDatabase:
         )
         self._session_factory = sessionmaker(bind=self._engine)
         Base.metadata.create_all(self._engine)
+        self._migrate_schema()
         logger.info("Leader DB initialized: %s", self._database_url)
+
+    def _migrate_schema(self) -> None:
+        """Add columns that may not exist on older databases."""
+        is_sqlite = self._database_url.startswith("sqlite")
+        if not is_sqlite:
+            return
+        with self._engine.connect() as conn:
+            for col_name, col_def in [
+                ("is_datasource", "BOOLEAN DEFAULT 0"),
+                ("enabled", "BOOLEAN DEFAULT 1"),
+                ("last_fetched_at", "DATETIME"),
+            ]:
+                if not self._column_exists(conn, "functions", col_name):
+                    conn.execute(
+                        __import__("sqlalchemy").text(
+                            f"ALTER TABLE functions ADD COLUMN {col_name} {col_def}"
+                        )
+                    )
+            for col_name, col_def in [
+                ("source_field", "VARCHAR(255)"),
+                ("unit", "VARCHAR(32)"),
+                ("semantic_type", "VARCHAR(64)"),
+            ]:
+                if not self._column_exists(conn, "function_columns", col_name):
+                    conn.execute(
+                        __import__("sqlalchemy").text(
+                            f"ALTER TABLE function_columns ADD COLUMN {col_name} {col_def}"
+                        )
+                    )
+            conn.commit()
+
+    @staticmethod
+    def _column_exists(conn, table: str, column: str) -> bool:
+        from sqlalchemy import text as sa_text
+        result = conn.execute(sa_text(f"PRAGMA table_info({table})"))
+        return any(row[1] == column for row in result.fetchall())
 
     def dispose(self) -> None:
         if self._engine is not None:

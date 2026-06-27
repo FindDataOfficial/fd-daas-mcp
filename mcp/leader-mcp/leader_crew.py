@@ -200,7 +200,7 @@ class LeaderCrew:
                 db = get_leader_db()
                 session = db.get_session()
                 try:
-                    from unified_models import Function
+                    from models import Function
                     match = session.query(Function).filter(Function.command == func_name).first()
                     if match:
                         return get_function_detail(match.harness, func_name)
