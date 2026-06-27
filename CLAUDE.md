@@ -11,24 +11,67 @@ uv sync                    # Create venv and install deps
 uv run <command>           # Run in the project venv
 ```
 
+## Construction Docs
+
+Read these for architecture and construction decisions:
+
+- `construction/mcp.md` — unified env, schema package (`mcp/models/`), single database (`mcp/daas.db`), all MCP servers
+- `construction/dashboard.md` — Next.js dashboard architecture, sql.js access, schema mirrors
+
+## Env & Schema (unified)
+
+**Single `.env`**: root `.env` holds `DAAS_DATABASE_URL`, proxy, CKAN portal, dashboard port. Every MCP `server.py` loads `dotenv` from root first, then its own `.env` with `override=True`. Per-MCP `.env` only contains overrides.
+
+**Single schema package**: `mcp/models/` — installable `pyproject.toml` package (`pip install -e mcp/models`). One `Base`, 13 tables across all MCP domains. Schema changes go here first.
+
+**Single database**: `mcp/daas.db` — all MCPs and the dashboard read/write here.
+
 ## MCP Servers (`mcp/`)
 
-All MCP servers are under `mcp/`, each in its own `*-mcp` directory. SQLite databases are centralized at `mcp/` root:
+All MCP servers are under `mcp/`, each in its own `*-mcp` directory.
 
-- `mcp/leader_mcp.db` — unified multi-harness registry (leader-mcp)
-- `mcp/cron.db` — scheduler data: schedules + execution history (cron-mcp)
+### mcp/models/ — Shared Schema Package
+
+Installable package with the one SQLAlchemy `Base`. All MCPs depend on it. Tables: `functions`, `function_columns`, `data_snapshots`, `schedules`, `executions`, `tasks`, `sources`, `daas_functions`, `daas_function_columns`, `observations`, `scraw_configs`, `datasources`, `datasource_columns`.
 
 ### mcp/leader-mcp/ — Multi-Harness Registry MCP
 
-Query the unified registry across all harnesses. Exposes: `list_harnesses`, `search_functions`, `get_function_detail`, `list_categories`, `find_functions_by_column`.
+Query the unified registry across all harnesses. Exposes: `list_harnesses`, `search_functions`, `get_function_detail`, `list_categories`, `find_functions_by_column`, `list_datasources`, `toggle_datasource`, `save_snapshot`, `list_snapshots`, `query_snapshots`, `get_column_provenance`, `update_column_meta`.
 
 - **Entry**: `python3 server.py` (FastMCP, stdio transport)
-- **Database**: `mcp/leader_mcp.db` (SQLite via SQLAlchemy, unified multi-harness schema)
+- **Database**: `mcp/daas.db` via `DAAS_DATABASE_URL` env var
+- **Models**: `from models import Function, FunctionColumn, DataSnapshot`
 - **Key files**: `server.py`, `leader_tools.py`, `leader_database.py`, `unified_models.py`, `database.py`, `migrate_registry.py`, `registry_service.py`, `leader_crew.py`
-- **Schema**: `functions` table (harness, command, category, source, description, parameters as JSON) + `function_columns` table (column_name, column_type, column_description)
-- `leader_database.py` — unified DB singleton, defaults to `../leader_mcp.db` relative to the file
-- `database.py` — AKShare-specific DB singleton, defaults to `akshare-agent-harness/cli_anything/akshare/metadata/registry.db`
-- Imports use direct relative imports (e.g., `from leader_tools import ...`) — run from within `mcp/leader-mcp/`
+- Imports use direct relative imports — run from within `mcp/leader-mcp/`
+
+### mcp/cron-mcp/ — Agent Scheduler MCP
+
+AI-agent-driven cron scheduling with SQLite + APScheduler.
+
+- **Entry**: `python3 server.py` or `uv run python server.py`
+- **Database**: `mcp/daas.db` via `DAAS_DATABASE_URL`
+- **Models**: `from models import Schedule, Execution, Task` (local `models.py` deleted)
+- **Key files**: `server.py`, `database.py`, `scheduler.py`, `agent_runner.py`, `registry.py`
+- **Dependencies**: `apscheduler>=3.11.2`, `sqlalchemy>=2.0.51`
+- Uses relative imports — run from within `mcp/cron-mcp/`
+
+### mcp/daas-mcp/ — DaaS Multi-Source Data MCP
+
+Source-based registry with live function execution.
+
+- **Entry**: `python3 server.py` (FastMCP, stdio transport)
+- **Database**: `mcp/daas.db` via `DAAS_DATABASE_URL`
+- **Models**: `from models import DaasSource, DaasFunction, DaasFunctionColumn, Observation` (local `models.py` deleted)
+- **Key files**: `server.py`, `daas_tools.py`, `daas_database.py`, `registry_service.py`
+
+### mcp/dashboard-mcp/ — Dashboard MCP
+
+Browse databases, query tables, manage datasources, get stats.
+
+- **Entry**: `python3 server.py` (FastMCP, stdio transport)
+- **Database**: `mcp/daas.db` via `DAAS_DATABASE_URL`
+- **Models**: `from models import Datasource, DatasourceColumn, ...` (no more inline CREATE TABLE)
+- **Key files**: `server.py`
 
 ### mcp/akshare-mcp/ — AKShare Financial Data MCP
 
@@ -36,18 +79,31 @@ Registry queries + live function execution for AKShare (673+ Chinese financial d
 
 - **Entry**: `python3 server.py` (FastMCP, stdio transport)
 - **Dependencies**: `akshare`, `pandas`, `fastmcp`, plus `akshare-agent-harness/` on `sys.path`
-- **Key files**: `server.py`
-- Resolves `akshare-agent-harness/` path via `os.path.dirname` traversing up to project root (3 levels from `mcp/akshare-mcp/server.py`)
 
-### mcp/cron-mcp/ — Agent Scheduler MCP
+### mcp/yfinance-mcp/ — yfinance (Yahoo Finance) Global Data MCP
 
-AI-agent-driven cron scheduling with SQLite + APScheduler. Supports cron and agent-driven schedules with execution history.
+Registry queries + live function execution for yfinance (global / US-market data). Mirrors `mcp/akshare-mcp/`. Tools: `search_functions`, `get_function_info`, `list_categories`, `list_functions`, `call_yfinance_function`. Commands starting `ticker_` dispatch via `yfinance.Ticker(symbol).<method>(...)`; top-level commands (`download`, `search`) call `yfinance.<name>(...)` directly.
 
-- **Entry**: `python3 server.py` (raw MCP SDK, stdio transport) or `uv run python server.py`
-- **Database**: `mcp/cron.db` (SQLite via SQLAlchemy, in `mcp/` root alongside `leader_mcp.db`)
-- **Key files**: `server.py`, `database.py`, `models.py`, `scheduler.py`, `agent_runner.py`, `registry.py`, `pyproject.toml`
-- **Dependencies**: `apscheduler>=3.11.2`, `mcp>=1.28.0`, `sqlalchemy>=2.0.51`
-- Uses relative imports (e.g., `from database import get_session`) — run from within `mcp/cron-mcp/`
+- **Entry**: `python3 server.py` (FastMCP, stdio transport)
+- **Dependencies**: `yfinance`, `pandas`, `fastmcp`, `sqlalchemy`, `click`, plus `yfinance-agent-harness/` on `sys.path`
+- **Database**: harness `yfinance-agent-harness/.../metadata/registry.db` via `YFINANCE_DATABASE_URL` (empty = harness default)
+- **Registered in `.mcp.json`** via `uv run --directory mcp/yfinance-mcp python server.py`
+
+### mcp/combine-mcp/ — Composite MCP
+
+Curate a composite MCP: pick named tools from multiple upstream MCP servers (proxied verbatim) and define chained tools (linear pipelines across upstreams). One composite served per process, selected by `COMPOSITE` env. Selection persisted in `daas.db`; management tools (`list_composites`, `add_upstream`, `list_available_tools`, `add_tool`, `add_chained_tool`, ...) always present. Served tool names are `<upstream>_<tool>` (mount namespace). Selection changes apply on restart.
+
+- **Entry**: `python3 server.py` (FastMCP, stdio). `.mcp.json` entry sets `COMPOSITE=example`.
+- **Database**: `mcp/daas.db` via `DAAS_DATABASE_URL`
+- **Models**: `from models import Composite, Upstream, CompositeTool, CompositeChain`
+- **Key files**: `server.py`, `combine_database.py`, `combine_tools.py`, `seed_example.py`, `selfcheck.py`
+- **Self-check**: `uv run python selfcheck.py` (uses a temp DB; does not touch `daas.db`)
+- **Seed shipped example**: `uv run python seed_example.py`
+- Imports use direct relative imports — run from within `mcp/combine-mcp/`
+
+### Other MCPs
+
+`ckan-mcp/`, `cnstats-mcp/`, `worldbank-mcp/` — dotenv loading added, otherwise unchanged. `scrapling-*-mcp/` — own `init_db.py`.
 
 ## akshare-agent-harness
 
@@ -75,6 +131,35 @@ uv run pytest -v                         # 8 unit + 6 E2E (from akshare-agent-ha
 - Two skill files: canonical at `skills/cli-anything-akshare/SKILL.md`, compatibility copy at `cli_anything/akshare/skills/SKILL.md`
 - Run `AKSHARE.md` for agent-specific analysis of the AKShare adaptation
 
+## yfinance-agent-harness
+
+CLI wrapper for yfinance (Yahoo Finance global / US-market data). Click-based, with REPL. Mirrors the akshare harness layout; the proxy subcommand group is omitted (yfinance does not need it).
+
+```bash
+# Install (from yfinance-agent-harness/)
+uv pip install -e ".[dev,repl]"
+
+# Run CLI
+.venv/bin/cli-anything-yfinance                       # REPL mode (default)
+.venv/bin/cli-anything-yfinance search history
+.venv/bin/cli-anything-yfinance call ticker_history symbol=AAPL period=1mo
+.venv/bin/cli-anything-yfinance list --json
+
+# Seed the registry DB
+.venv/bin/python -m cli_anything.yfinance.core.migrate_registry
+
+# Run tests (from yfinance-agent-harness/)
+.venv/bin/python -m pytest -v                         # 17 tests
+```
+
+- Python >=3.10, depends on `click`, `pandas`, `yfinance`, `sqlalchemy`
+- Curated registry at `cli_anything/yfinance/core/seed.py` (hand-curated, not scraped); mirrored into `cli_anything/yfinance/metadata/registry.db` via `migrate_registry.py`
+- Two-table schema (`functions` / `function_columns`), same as the akshare harness
+- `YFINANCE_DATABASE_URL` env var overrides the DB URL (empty = harness default)
+- Command convention: `ticker_<method>` → `yfinance.Ticker(symbol).<method>(...)`; top-level (`download`, `search`) → `yfinance.<name>(...)`
+- Tests skip live calls when `yfinance` not installed (`@pytest.mark.skipif`); E2E uses `_resolve_cli("cli-anything-yfinance")` → falls back to `python -m`
+- Skill file: `skills/cli-anything-yfinance/SKILL.md`
+
 ## CLI-Anything (upstream)
 
 Contains 60+ generated CLI harnesses in `<software>/agent-harness/` directories.
@@ -89,5 +174,5 @@ Contains 60+ generated CLI harnesses in `<software>/agent-harness/` directories.
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/001-daas-provider/plan.md
+at /Users/chengsishi/code/cli-anything/specs/001-daas-provider/plan.md
 <!-- SPECKIT END -->

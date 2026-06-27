@@ -1,7 +1,6 @@
-"""
-Database singleton for daas-mcp — SQLAlchemy engine + session factory.
+"""Database singleton for daas-mcp — SQLAlchemy engine + session factory.
 
-Defaults to mcp/daas_registry.db. Override with DATABASE_URL env var.
+Defaults to mcp/daas.db. Override with DAAS_DATABASE_URL env var.
 """
 from __future__ import annotations
 
@@ -27,10 +26,10 @@ class Database:
 
     @staticmethod
     def _default_url() -> str:
-        url = os.environ.get("DATABASE_URL")
+        url = os.environ.get("DAAS_DATABASE_URL")
         if url:
             return url
-        db_path = os.environ.get("DAAS_REGISTRY_DB", "../daas_registry.db")
+        db_path = os.environ.get("DAAS_REGISTRY_DB", "../daas.db")
         return f"sqlite:///{db_path}"
 
     def get_session(self) -> Session:

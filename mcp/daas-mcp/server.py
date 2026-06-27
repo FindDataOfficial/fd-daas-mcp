@@ -12,6 +12,12 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
+from dotenv import load_dotenv
+
+ROOT = Path(__file__).resolve().parent.parent  # mcp/
+load_dotenv(ROOT / ".env")
+load_dotenv(Path(__file__).parent / ".env", override=True)
 
 from fastmcp import FastMCP
 

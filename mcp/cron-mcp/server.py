@@ -6,7 +6,14 @@ Run: fastmcp run server.py
 import atexit
 import json
 import logging
+from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
+
+ROOT = Path(__file__).resolve().parent.parent  # mcp/
+load_dotenv(ROOT / ".env")
+load_dotenv(Path(__file__).parent / ".env", override=True)
 
 from fastmcp import FastMCP
 
