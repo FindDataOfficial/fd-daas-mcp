@@ -6,6 +6,12 @@ __pycache__/
 venv/
 *.db
 
+# Secrets / env files (keep .env.example templates tracked)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
 # Node / Next
 node_modules/
 .next/
