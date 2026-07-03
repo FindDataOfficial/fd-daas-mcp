@@ -4,6 +4,13 @@ from models.models import (  # noqa: F401
     Function,
     FunctionColumn,
     DataSnapshot,
+    LeaderUpstream,
+    # leader-mcp crewai-data-workflow (specialist agents + workflows)
+    SpecialistAgent,
+    Workflow,
+    WorkflowStep,
+    WorkflowRun,
+    WorkflowStepResult,
     # cron-mcp
     Schedule,
     Execution,
@@ -13,6 +20,14 @@ from models.models import (  # noqa: F401
     DaasFunction,
     DaasFunctionColumn,
     Observation,
+    Category,
+    DatasourceForm,
+    DatasourceSection,
+    DatasourceCollection,
+    DatasourceCollectionItem,
+    # daas-mcp pipeline collections (managed fetch+cron collections)
+    PipelineCollection,
+    PipelineCollectionItem,
     # scrapling
     ScrawConfig,
     # dashboard
@@ -25,4 +40,8 @@ from models.models import (  # noqa: F401
     Upstream,
     CompositeTool,
     CompositeChain,
+    # cnreport-mcp
+    ReportDocument,
+    ReportSection,
+    EsIndexMeta,
 )

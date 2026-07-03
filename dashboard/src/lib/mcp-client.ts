@@ -1,6 +1,7 @@
 import { experimental_createMCPClient } from '@ai-sdk/mcp';
 import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio';
 import path from 'path';
+import { REPO_ROOT } from './paths';
 
 type MCPClient = Awaited<ReturnType<typeof experimental_createMCPClient>>;
 
@@ -9,7 +10,6 @@ let _tools: Record<string, any> | null = null;
 let _connecting: Promise<MCPClient> | null = null;
 let _lastError: Error | null = null;
 
-const REPO_ROOT = path.resolve(process.cwd(), '..');
 
 function getServerConfig(): { command: string; args: string[]; cwd: string; env?: Record<string, string> } {
   const server = process.env.MCP_SERVER || 'leader-mcp';

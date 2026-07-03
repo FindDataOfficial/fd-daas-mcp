@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation';
 
 const LINKS = [
   { href: '/chat', label: 'Chat' },
+  { href: '/collections', label: 'Collections' },
+  { href: '/collections/manage', label: 'Manage' },
   { href: '/databases', label: 'Databases' },
   { href: '/cron', label: 'Cron Tasks' },
   { href: '/datasources', label: 'Datasources' },

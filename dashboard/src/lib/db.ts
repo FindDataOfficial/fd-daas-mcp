@@ -3,9 +3,26 @@
 import initSqlJs from 'sql.js';
 import fs from 'fs';
 import path from 'path';
+import { REPO_ROOT } from './paths';
 
-const DB_PATH = process.env.DAAS_DATABASE_URL?.replace('sqlite:///', '')
-  || path.join(process.cwd(), '..', 'mcp', 'daas.db');
+// Resolve DAAS_DATABASE_URL against the repo root (located by findRepoRoot in
+// paths.ts — NOT process.cwd(), which is only `dashboard/` when the server is
+// launched from there). Mirrors daas-mcp's _resolve_url so a repo-relative
+// value like `sqlite:///mcp/daas.db` resolves identically for the dashboard
+// (sql.js reads) and the daas-mcp writer (spawned via `uv run --directory
+// mcp/daas-mcp`, whose cwd is mcp/daas-mcp/ — not the repo root).
+
+function resolveDaasDbPath(): string {
+  const envRel = process.env.DAAS_DATABASE_URL?.replace('sqlite:///', '');
+  if (envRel) {
+    if (envRel === ':memory:') return envRel;
+    return path.isAbsolute(envRel) ? envRel : path.resolve(REPO_ROOT, envRel);
+  }
+  return path.join(REPO_ROOT, 'mcp', 'daas.db');
+}
+
+const DB_PATH = resolveDaasDbPath();
+export const DAAS_DB_PATH = DB_PATH;
 const DB_DIR = path.dirname(DB_PATH);
 
 let SQL = null;
@@ -71,4 +88,16 @@ export function getTableColumns(db, tableName) {
 export function listTables(db) {
   const rows = queryAll(db, "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name");
   return rows.map(r => String(r.name));
+}
+
+/**
+ * Drop the cached sql.js DB for `name` so the next getDb() re-reads the file.
+ * Call after any out-of-process write (e.g. our Python writer CLIs).
+ */
+export function invalidateDb(name) {
+  const cached = dbCache.get(name);
+  if (cached) {
+    try { cached.close(); } catch {}
+    dbCache.delete(name);
+  }
 }

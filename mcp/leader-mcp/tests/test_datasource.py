@@ -9,20 +9,22 @@ from sqlalchemy import text
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from leader_database import get_leader_db, reset_leader_db
-from unified_models import Function, FunctionColumn, DataSnapshot, Base
+from models import Function, FunctionColumn, DataSnapshot, Base
 
 
 @pytest.fixture(autouse=True)
 def clean_db():
     """Use a fresh in-memory database for each test."""
     db_url = os.environ.get("LEADER_MCP_DATABASE_URL")
-    if not db_url:
-        os.environ["LEADER_MCP_DATABASE_URL"] = "sqlite:///:memory:"
+    # leader_database reads DAAS_DATABASE_URL, not LEADER_MCP_DATABASE_URL.
+    os.environ["DAAS_DATABASE_URL"] = "sqlite:///:memory:"
     reset_leader_db()
     yield
     reset_leader_db()
     if db_url is not None:
         os.environ["LEADER_MCP_DATABASE_URL"] = db_url
+    else:
+        os.environ.pop("DAAS_DATABASE_URL", None)
 
 
 def _seed_function(session, harness="akshare", command="test_func", category="test"):

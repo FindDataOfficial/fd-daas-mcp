@@ -1,8 +1,6 @@
 // @ts-nocheck
-import { getDb, queryAll, getTableColumns } from '@/lib/db';
+import { getDb, queryAll, getTableColumns, DAAS_DB_PATH as DB_PATH } from '@/lib/db';
 import Link from 'next/link';
-
-const DB_PATH = process.env.DAAS_DATABASE_URL?.replace('sqlite:///', '') || path.join(process.cwd(), '..', 'mcp', 'daas.db');
 
 async function ensureSeed() {
   const db = await getDb('daas');
