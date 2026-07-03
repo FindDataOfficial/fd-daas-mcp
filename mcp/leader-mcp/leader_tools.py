@@ -1,9 +1,13 @@
 """
 Database tools for the Leader MCP — plain Python functions that query
-the unified multi-harness database.
+the harness-based registry in daas.db (shared `mcp/models` schema).
 
-These are designed to work as CrewAI tools (via @tool decorator) but are
-also callable directly without CrewAI for testing and scripting.
+Each function row is keyed by (harness, command) — e.g. harness='akshare',
+command='stock_zh_a_hist'. `harness` is the source/harness name; `command`
+is the function name. There is no separate `sources` table dependency here.
+
+Designed to work as CrewAI tools (via @tool decorator) but also callable
+directly without CrewAI for testing and scripting.
 """
 from __future__ import annotations
 
@@ -19,14 +23,23 @@ from leader_database import get_leader_db, reset_leader_db
 from models import Function, FunctionColumn, DataSnapshot
 
 
+def _find_function(session, harness: str, command: str):
+    """Look up a function by (harness, command)."""
+    return (
+        session.query(Function)
+        .filter(Function.harness == harness, Function.command == command)
+        .first()
+    )
+
+
 def list_harnesses() -> str:
-    """List all harness names in the unified database, with function counts."""
+    """List all harness names in the registry, with function counts."""
     db = get_leader_db()
     session = db.get_session()
     try:
         rows = (
             session.query(
-                Function.harness,
+                Function.harness.label("harness"),
                 func.count(Function.id).label("cnt"),
             )
             .group_by(Function.harness)
@@ -45,17 +58,16 @@ def search_functions(query: str, harness: Optional[str] = None) -> str:
     """Search functions across all harnesses (or filter by harness).
 
     Multi-word queries are split and each term is OR-matched against
-    command, category, and description. E.g., 'stock market' becomes
+    function command, category, and description. E.g., 'stock market' becomes
     'stock' OR 'market'.
 
     Args:
         query: Search term(s) — matches command, category, and description.
-        harness: Optional harness name to limit scope.
+        harness: Optional harness name to limit scope (e.g. 'akshare', 'yfinance').
     """
     db = get_leader_db()
     session = db.get_session()
     try:
-        # Split multi-word queries into OR-ed LIKE clauses for each term
         terms = [t.strip() for t in query.split() if t.strip()]
         if not terms:
             terms = [query]
@@ -64,7 +76,6 @@ def search_functions(query: str, harness: Optional[str] = None) -> str:
         if harness:
             q_obj = q_obj.filter(Function.harness == harness)
 
-        # Build OR across terms and fields
         conditions = []
         for term in terms:
             pattern = f"%{term}%"
@@ -81,32 +92,36 @@ def search_functions(query: str, harness: Optional[str] = None) -> str:
         if not rows:
             scope = f"in '{harness}'" if harness else "across all harnesses"
             return f"No functions found matching '{query}' {scope}."
-        lines = [f"[{r.harness}] {r.command} | {r.category} | {r.description or ''}" for r in rows]
+        lines = [
+            f"[{r.harness}] {r.command} | {r.category} | {r.description or ''}"
+            for r in rows
+        ]
         return "\n".join(lines)
     finally:
         session.close()
 
 
 def get_function_detail(harness: str, command: str) -> str:
-    """Get full details for a function, including parameters and output columns."""
+    """Get full details for a function, including parameters and output columns.
+
+    Args:
+        harness: Harness name (e.g. 'akshare', 'yfinance', 'ckan').
+        command: Function name (e.g. 'stock_zh_a_hist').
+    """
     db = get_leader_db()
     session = db.get_session()
     try:
-        func = (
-            session.query(Function)
-            .filter(Function.harness == harness, Function.command == command)
-            .first()
-        )
-        if func is None:
+        f = _find_function(session, harness, command)
+        if f is None:
             return f"Function '{command}' not found in harness '{harness}'."
-        d = func.to_dict()
+        d = f.to_dict()
         params = d.get("parameters", [])
         cols = d.get("columns", [])
         lines = [
             f"Harness:     {d['harness']}",
             f"Command:     {d['command']}",
+            f"Source URL:  {d.get('source') or 'N/A'}",
             f"Category:    {d['category']}",
-            f"Source:      {d.get('source', 'N/A')}",
             f"Description: {d['description'] or 'N/A'}",
             f"Parameters ({len(params)}):",
         ]
@@ -124,12 +139,16 @@ def get_function_detail(harness: str, command: str) -> str:
 
 
 def list_categories(harness: Optional[str] = None) -> str:
-    """List all categories with function counts, optionally filtered by harness."""
+    """List all categories with function counts, optionally filtered by harness.
+
+    Args:
+        harness: Optional harness name to filter by.
+    """
     db = get_leader_db()
     session = db.get_session()
     try:
         q = session.query(
-            Function.harness,
+            Function.harness.label("harness"),
             Function.category,
             func.count(Function.id).label("cnt"),
         )
@@ -156,13 +175,18 @@ def list_categories(harness: Optional[str] = None) -> str:
 
 
 def find_functions_by_column(column_name: str, harness: Optional[str] = None) -> str:
-    """Find all functions that have a specific output column name."""
+    """Find all functions that have a specific output column name.
+
+    Args:
+        column_name: Output column name to search for.
+        harness: Optional harness name to filter by.
+    """
     db = get_leader_db()
     session = db.get_session()
     try:
         q = (
             session.query(Function)
-            .join(FunctionColumn)
+            .join(FunctionColumn, FunctionColumn.function_id == Function.id)
             .filter(FunctionColumn.column_name == column_name)
         )
         if harness:
@@ -205,30 +229,29 @@ def import_harness_registry(harness: str, registry_json_path: str) -> str:
                 skipped += 1
                 continue
 
-            func = (
+            f = (
                 session.query(Function)
                 .filter(Function.harness == harness, Function.command == command)
                 .first()
             )
-            if func is None:
-                func = Function(harness=harness, command=command)
+            if f is None:
+                f = Function(harness=harness, command=command)
 
-            func.category = info.get("category", "未分类")
-            func.source = info.get("source", "")
-            func.description = info.get("description", "")
-            func.parameters = info.get("parameters", [])
-            session.add(func)
+            f.category = info.get("category", "未分类")
+            f.source = info.get("source", "")
+            f.description = info.get("description", "")
+            f.parameters = info.get("parameters", [])
+            session.add(f)
             session.flush()
 
-            # Replace columns
             (
                 session.query(FunctionColumn)
-                .filter(FunctionColumn.function_id == func.id)
+                .filter(FunctionColumn.function_id == f.id)
                 .delete()
             )
             for col_data in info.get("columns", []):
                 col = FunctionColumn(
-                    function_id=func.id,
+                    function_id=f.id,
                     column_name=col_data.get("name", ""),
                     column_type=col_data.get("type", ""),
                     column_description=col_data.get("description", ""),
@@ -263,7 +286,7 @@ def list_datasources(harness: Optional[str] = None) -> str:
     db = get_leader_db()
     session = db.get_session()
     try:
-        q = session.query(Function).filter(Function.is_datasource == True)
+        q = session.query(Function).filter(Function.is_datasource == True)  # noqa: E712
         if harness:
             q = q.filter(Function.harness == harness)
         rows = q.order_by(Function.harness, Function.command).all()
@@ -296,27 +319,23 @@ def toggle_datasource(
 
     Args:
         harness: Harness name (e.g., 'akshare').
-        command: Function command name.
+        command: Function name.
         enabled: Set the enabled state (True/False). Omit to leave unchanged.
         is_datasource: Set is_datasource flag (True/False). Omit to leave unchanged.
     """
     db = get_leader_db()
     session = db.get_session()
     try:
-        func = (
-            session.query(Function)
-            .filter(Function.harness == harness, Function.command == command)
-            .first()
-        )
-        if func is None:
+        f = _find_function(session, harness, command)
+        if f is None:
             return f"Function '{command}' not found in harness '{harness}'."
 
         changes = []
         if is_datasource is not None:
-            func.is_datasource = is_datasource
+            f.is_datasource = is_datasource
             changes.append(f"is_datasource={is_datasource}")
         if enabled is not None:
-            func.enabled = enabled
+            f.enabled = enabled
             changes.append(f"enabled={enabled}")
 
         if not changes:
@@ -325,7 +344,7 @@ def toggle_datasource(
         session.commit()
         return (
             f"Updated '{harness}/{command}': {', '.join(changes)}. "
-            f"Current state: is_datasource={func.is_datasource}, enabled={func.enabled}"
+            f"Current state: is_datasource={f.is_datasource}, enabled={f.enabled}"
         )
     except Exception as e:
         session.rollback()
@@ -341,9 +360,11 @@ def save_snapshot(harness: str, command: str, params: str = "{}") -> str:
     and upserts into data_snapshots. Updates last_fetched_at on the function.
     Caps at 10000 rows.
 
+    Only the 'akshare' harness supports live function calls here.
+
     Args:
         harness: Harness name (e.g., 'akshare').
-        command: Function command name.
+        command: Function name.
         params: JSON string of parameters (e.g., '{"symbol":"000001"}').
     """
     import importlib
@@ -353,24 +374,18 @@ def save_snapshot(harness: str, command: str, params: str = "{}") -> str:
     db = get_leader_db()
     session = db.get_session()
     try:
-        func = (
-            session.query(Function)
-            .filter(Function.harness == harness, Function.command == command)
-            .first()
-        )
-        if func is None:
+        f = _find_function(session, harness, command)
+        if f is None:
             return f"Function '{command}' not found in harness '{harness}'."
 
         params_dict = json.loads(params) if isinstance(params, str) else params
 
-        # Try to call the function via the harness adapter
         data_json = None
         row_count = 0
         status = "error"
         error_msg = None
 
         try:
-            # Resolve and call the function
             if harness == "akshare":
                 mod = importlib.import_module("akshare")
                 fn = getattr(mod, command, None)
@@ -383,7 +398,6 @@ def save_snapshot(harness: str, command: str, params: str = "{}") -> str:
                     f"Only 'akshare' is supported for save_snapshot."
                 )
 
-            # Convert result to JSON rows
             if hasattr(result, "to_dict"):
                 data = result.to_dict(orient="records")
             elif hasattr(result, "to_json"):
@@ -392,6 +406,10 @@ def save_snapshot(harness: str, command: str, params: str = "{}") -> str:
                 data = result
             else:
                 return f"Unsupported result type: {type(result).__name__}"
+
+            # Normalize non-JSON-native types (datetime.date, Decimal, numpy
+            # scalars) so the JSON column serialization below doesn't fail.
+            data = json.loads(json.dumps(data, default=str))
 
             if len(data) > MAX_ROWS:
                 return (
@@ -407,18 +425,16 @@ def save_snapshot(harness: str, command: str, params: str = "{}") -> str:
             data_json = [{"error": error_msg}]
             status = "error"
 
-        # Upsert snapshot
-        params_key = json.dumps(params_dict, sort_keys=True, ensure_ascii=False)
         snap = (
             session.query(DataSnapshot)
             .filter(
-                DataSnapshot.function_id == func.id,
+                DataSnapshot.function_id == f.id,
                 DataSnapshot.params_json == params_dict,
             )
             .first()
         )
         if snap is None:
-            snap = DataSnapshot(function_id=func.id, params_json=params_dict)
+            snap = DataSnapshot(function_id=f.id, params_json=params_dict)
             session.add(snap)
 
         snap.data_json = data_json
@@ -426,8 +442,7 @@ def save_snapshot(harness: str, command: str, params: str = "{}") -> str:
         snap.status = status
         snap.fetched_at = datetime.now(timezone.utc)
 
-        # Update last_fetched_at on the function
-        func.last_fetched_at = snap.fetched_at
+        f.last_fetched_at = snap.fetched_at
 
         session.commit()
         return (
@@ -448,15 +463,15 @@ def list_snapshots(
     """List all stored data snapshots with metadata.
 
     Args:
-        harness: Optional harness filter.
-        command: Optional command filter (requires harness).
+        harness: Optional harness name filter.
+        command: Optional function name filter (requires harness).
     """
     db = get_leader_db()
     session = db.get_session()
     try:
         q = (
             session.query(DataSnapshot, Function)
-            .join(Function)
+            .join(Function, DataSnapshot.function_id == Function.id)
         )
         if harness:
             q = q.filter(Function.harness == harness)
@@ -468,10 +483,10 @@ def list_snapshots(
             return "No snapshots found."
 
         lines = []
-        for snap, func in rows:
+        for snap, f in rows:
             fetched = snap.fetched_at.strftime("%Y-%m-%d %H:%M") if snap.fetched_at else "?"
             lines.append(
-                f"[{snap.id}] {func.harness}/{func.command} | "
+                f"[{snap.id}] {f.harness}/{f.command} | "
                 f"{snap.row_count} rows | {snap.status} | {fetched}"
             )
         return "\n".join(lines)
@@ -509,7 +524,6 @@ def query_snapshots(
             "",
         ]
         if page:
-            # Header row
             headers = list(page[0].keys()) if page else []
             lines.append(" | ".join(headers))
             lines.append("-" * 80)
@@ -534,22 +548,18 @@ def get_column_provenance(harness: str, command: str) -> str:
 
     Args:
         harness: Harness name (e.g., 'akshare').
-        command: Function command name.
+        command: Function name.
     """
     db = get_leader_db()
     session = db.get_session()
     try:
-        func = (
-            session.query(Function)
-            .filter(Function.harness == harness, Function.command == command)
-            .first()
-        )
-        if func is None:
+        f = _find_function(session, harness, command)
+        if f is None:
             return f"Function '{command}' not found in harness '{harness}'."
 
         cols = (
             session.query(FunctionColumn)
-            .filter(FunctionColumn.function_id == func.id)
+            .filter(FunctionColumn.function_id == f.id)
             .order_by(FunctionColumn.id)
             .all()
         )
@@ -563,7 +573,7 @@ def get_column_provenance(harness: str, command: str) -> str:
         ]
         for c in cols:
             lines.append(
-                f"{c.column_name:<20} "
+                f"{(c.column_name or ''):<20} "
                 f"{(c.column_type or ''):<12} "
                 f"{(c.source_field or ''):<20} "
                 f"{(c.unit or ''):<10} "
@@ -589,7 +599,7 @@ def update_column_meta(
 
     Args:
         harness: Harness name (e.g., 'akshare').
-        command: Function command name.
+        command: Function name.
         column_name: Name of the column to update.
         source_field: API field name this column maps to.
         unit: Unit of measurement (CNY, %, shares, etc.).
@@ -598,18 +608,14 @@ def update_column_meta(
     db = get_leader_db()
     session = db.get_session()
     try:
-        func = (
-            session.query(Function)
-            .filter(Function.harness == harness, Function.command == command)
-            .first()
-        )
-        if func is None:
+        f = _find_function(session, harness, command)
+        if f is None:
             return f"Function '{command}' not found in harness '{harness}'."
 
         col = (
             session.query(FunctionColumn)
             .filter(
-                FunctionColumn.function_id == func.id,
+                FunctionColumn.function_id == f.id,
                 FunctionColumn.column_name == column_name,
             )
             .first()

@@ -62,6 +62,7 @@ Schema changes go in `mcp/models/models.py` first, then propagate to consumers.
 | akshare-mcp | `mcp/akshare-mcp/` | `cli_anything.akshare.core.models` | untouched |
 | scrapling-*-mcp | `mcp/scrapling-*-mcp/` | own `init_db.py` | untouched |
 | combine-mcp | `mcp/combine-mcp/` | `from models import Composite, ...` | composite MCP — curate selected tools from upstreams + chained tools; one composite per process via `COMPOSITE` env |
+| hkreport-mcp | `mcp/hkreport-mcp/` | none (live HKEXnews + akshare) | HK filings + financials; 5 tools, edgartools-style; keyless |
 
 ### Deleted Files
 

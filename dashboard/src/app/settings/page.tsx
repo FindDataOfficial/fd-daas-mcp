@@ -1,10 +1,11 @@
 // @ts-nocheck
 import { getDb, queryAll, saveDb } from '@/lib/db';
+import { REPO_ROOT } from '@/lib/paths';
 import fs from 'fs';
 import path from 'path';
 import { SettingsForm } from './settings-form';
 
-const ROOT_ENV = path.join(process.cwd(), '..', '.env');
+const ROOT_ENV = path.join(REPO_ROOT, '.env');
 
 const MCP_SCOPES = [
   'daas-mcp', 'cron-mcp', 'leader-mcp', 'ckan-mcp',
@@ -78,7 +79,7 @@ async function ensureSeed() {
 
   // Seed per-MCP .env overrides
   for (const mcp of MCP_SCOPES) {
-    const mcpEnvPath = path.join(process.cwd(), '..', 'mcp', mcp, '.env');
+    const mcpEnvPath = path.join(REPO_ROOT, 'mcp', mcp, '.env');
     const mcpVars = parseEnvFile(mcpEnvPath);
     for (const key of ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY']) {
       const val = mcpVars[key];

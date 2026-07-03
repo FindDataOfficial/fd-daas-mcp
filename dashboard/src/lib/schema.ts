@@ -147,3 +147,96 @@ export interface DataSnapshotRow {
   data_json: string;
   row_count: number;
 }
+
+// daas.db — categories, forms, sections, collections (daas-mcp management)
+export interface CategoryRow {
+  id: number;
+  name: string;
+  label: string | null;
+  parent_id: number | null;
+  sort_order: number | null;
+}
+
+export interface DatasourceFormRow {
+  id: number;
+  source_id: number;
+  form_type: string;
+  label: string | null;
+}
+
+export interface DatasourceSectionRow {
+  id: number;
+  form_id: number;
+  section_name: string;
+  instruction: string | null;
+  sort_order: number | null;
+}
+
+export interface DatasourceCollectionRow {
+  id: number;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DatasourceCollectionItemRow {
+  id: number;
+  collection_id: number;
+  source_id: number;
+  section_id: number | null;
+  sort_order: number;
+  created_at: string;
+}
+
+/**
+ * Derived shapes used by the collections workspace. These don't map 1:1 to
+ * tables — they're the result of loadCatalog() / loadCollection() joins.
+ */
+export interface CatalogSection {
+  id: number;
+  section_name: string;
+  instruction: string | null;
+}
+
+export interface CatalogForm {
+  id: number;
+  form_type: string;
+  label: string | null;
+  sections: CatalogSection[];
+}
+
+export interface CatalogSource {
+  id: number;
+  name: string;
+  label: string;
+  description: string | null;
+  category_id: number | null;
+  category_name: string | null;
+  forms: CatalogForm[];
+}
+
+export interface CatalogGroup {
+  category_id: number | null; // null = uncategorized
+  category_name: string;       // "(uncategorized)" when null
+  sources: CatalogSource[];
+}
+
+export interface CollectionItem {
+  item_id: number;
+  source_id: number;
+  source_name: string;
+  source_label: string;
+  section_id: number | null;
+  section_name: string | null;
+  form_type: string | null;
+  instruction: string | null;
+  sort_order: number;
+}
+
+export interface CollectionDetail {
+  id: number;
+  name: string;
+  description: string | null;
+  items: CollectionItem[];
+}

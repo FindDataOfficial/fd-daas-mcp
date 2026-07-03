@@ -23,5 +23,14 @@ Thumbs.db
 *.csv
 !specs/**/*.csv
 
+# dartlab pre-built parquet caches (auto-downloaded from HuggingFace on first call)
+mcp/dartlab-mcp/data/
+
+# Stray SQLite from a :memory: URL misconfiguration
+:memory:
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
 # Logs
 *.log

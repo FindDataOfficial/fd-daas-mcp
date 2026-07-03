@@ -1,0 +1,11 @@
+[project]
+name = "dartlab-mcp"
+version = "0.1.0"
+description = "dartlab (Korea DART + US EDGAR) MCP Server — panels, filings, credit, analysis, scans"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=2.0",
+    "dartlab>=0.10",
+    "pandas>=1.0",
+    "python-dotenv>=1.0",
+]

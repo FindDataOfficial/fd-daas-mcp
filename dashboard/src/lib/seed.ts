@@ -1,10 +1,6 @@
 // @ts-nocheck
 // Schema managed by mcp/models/models.py.
-import { getDb, queryAll, getTableColumns } from '@/lib/db';
-import path from 'path';
-
-const DB_PATH = process.env.DAAS_DATABASE_URL?.replace('sqlite:///', '')
-  || path.join(process.cwd(), '..', 'mcp', 'daas.db');
+import { getDb, queryAll, getTableColumns, DAAS_DB_PATH as DB_PATH } from '@/lib/db';
 
 export async function seedDatasources() {
   const db = await getDb('daas');

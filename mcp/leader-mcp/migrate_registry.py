@@ -171,9 +171,18 @@ class MigrationRunner:
         Returns:
             True if counts match, False otherwise.
         """
-        db_count = self._session.query(Function).count()
-        db_col_count = self._session.query(FunctionColumn).count()
-        print(f"Database: {db_count} functions, {db_col_count} columns")
+        db_count = (
+            self._session.query(Function)
+            .filter(Function.harness == self._harness)
+            .count()
+        )
+        db_col_count = (
+            self._session.query(FunctionColumn)
+            .join(Function)
+            .filter(Function.harness == self._harness)
+            .count()
+        )
+        print(f"Database: {db_count} functions, {db_col_count} columns (harness={self._harness})")
         print(f"Expected: {expected_count} functions")
         return db_count == expected_count
 

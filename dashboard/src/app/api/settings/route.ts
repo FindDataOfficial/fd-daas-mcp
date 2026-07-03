@@ -1,10 +1,11 @@
 // @ts-nocheck
 import { getDb, saveDb } from '@/lib/db';
+import { REPO_ROOT } from '@/lib/paths';
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 
-const ROOT_ENV = path.join(process.cwd(), '..', '.env');
+const ROOT_ENV = path.join(REPO_ROOT, '.env');
 
 function syncToEnv(key: string, value: string) {
   let content = '';

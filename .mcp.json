@@ -5,20 +5,10 @@
       "command": "/Users/chengsishi/code/cli-anything/mcp/leader-mcp/.venv/bin/fastmcp",
       "args": [
         "run",
-        "server.py",
+        "/Users/chengsishi/code/cli-anything/mcp/leader-mcp/server.py",
         "--no-banner"
       ],
       "cwd": "/Users/chengsishi/code/cli-anything/mcp/leader-mcp"
-    },
-    "akshare-mcp": {
-      "type": "stdio",
-      "command": "/Users/chengsishi/code/cli-anything/mcp/akshare-mcp/.venv/bin/fastmcp",
-      "args": [
-        "run",
-        "server.py",
-        "--no-banner"
-      ],
-      "cwd": "/Users/chengsishi/code/cli-anything/mcp/akshare-mcp"
     },
     "cron-mcp": {
       "type": "stdio",
@@ -52,45 +42,6 @@
         "scrapling-mcp"
       ]
     },
-    "ckan-mcp": {
-      "type": "stdio",
-      "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "/Users/chengsishi/code/cli-anything/mcp/ckan-mcp",
-        "fastmcp",
-        "run",
-        "server.py",
-        "--no-banner"
-      ]
-    },
-    "cnstats-mcp": {
-      "type": "stdio",
-      "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "/Users/chengsishi/code/cli-anything/mcp/cnstats-mcp",
-        "fastmcp",
-        "run",
-        "server.py",
-        "--no-banner"
-      ]
-    },
-    "worldbank-mcp": {
-      "type": "stdio",
-      "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "/Users/chengsishi/code/cli-anything/mcp/worldbank-mcp",
-        "fastmcp",
-        "run",
-        "server.py",
-        "--no-banner"
-      ]
-    },
     "daas-mcp": {
       "type": "stdio",
       "command": "uv",
@@ -117,17 +68,6 @@
         "--no-banner"
       ]
     },
-    "yfinance-mcp": {
-      "type": "stdio",
-      "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "/Users/chengsishi/code/cli-anything/mcp/yfinance-mcp",
-        "python",
-        "server.py"
-      ]
-    },
     "combine-mcp": {
       "type": "stdio",
       "command": "uv",
@@ -143,6 +83,17 @@
       "env": {
         "COMPOSITE": "example"
       }
+    },
+    "process-mcp": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/Users/chengsishi/code/cli-anything/mcp/process-mcp",
+        "python",
+        "server.py"
+      ]
     }
   }
 }

@@ -1,0 +1,26 @@
+[project]
+name = "process-mcp"
+version = "0.1.0"
+description = "Process MCP — multi-model LLM extraction (long text + images) with persisted rules, cron-driven"
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp>=2.0",
+    "httpx>=0.27",
+    "jsonschema>=4.0",
+    "pypdf>=4.0",
+    "sqlalchemy>=2.0",
+    "python-dotenv>=1.0",
+    "mcp-models",
+    "pandas>=2.0",
+]
+
+[tool.setuptools]
+py-modules = [
+    "server",
+    "process_tools",
+    "process_database",
+    "indicator_tools",
+]
+
+[tool.uv.sources]
+mcp-models = { path = "../models", editable = true }

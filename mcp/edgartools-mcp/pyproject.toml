@@ -1,0 +1,11 @@
+[project]
+name = "edgartools-mcp"
+version = "0.1.0"
+description = "EdgarTools (SEC EDGAR) MCP Server — filings, financials, insider trades"
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp>=2.0",
+    "edgartools>=2.0",
+    "pandas>=1.0",
+    "python-dotenv>=1.0",
+]
