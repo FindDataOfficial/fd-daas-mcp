@@ -77,11 +77,12 @@ CATEGORIES: list[tuple[str, str, str | None]] = [
     ("CN-Cninfo", "China Cninfo", "Filings"),
     ("HK-HKEX", "Hong Kong HKEXnews", "Filings"),
     ("Global", "Global Markets", "Market-Data"),
+    ("Massive", "Massive.com", "Market-Data"),
     ("China", "China Statistics", "Macro"),
 ]
 
 # Sources this seed may CREATE and DELETE. cnstats is enriched, never deleted.
-OWNED_SOURCES = ("edgar", "edinet", "yfinance", "cnreport", "hkex")
+OWNED_SOURCES = ("edgar", "edinet", "yfinance", "cnreport", "hkex", "massive")
 ENRICH_SOURCES = ("cnstats",)
 # Hard guard: these source names are NEVER deleted by --unseed, regardless.
 PROTECTED_SOURCES = {"ckan", "cnstats", "worldbank"}
@@ -123,6 +124,12 @@ SOURCES: dict[str, dict] = {
         "description": "HK-listed company filings, financials, and disclosure calendar via hkreport-mcp.",
         "url": "https://www1.hkexnews.hk",
         "category": "HK-HKEX",
+    },
+    "massive": {
+        "label": "Massive.com",
+        "description": "Multi-asset financial data (stocks, options, forex, crypto, futures, fundamentals, analyst news, treasuries) via the mcp_massive 3-tool composable API (search_endpoints -> call_api -> query_data).",
+        "url": "https://massive.com",
+        "category": "Massive",
     },
 }
 
@@ -276,6 +283,16 @@ HKEX_SECTIONS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
+# ── massive: single `default` form, one section per composable tool ───
+# mcp_massive exposes 3 composable tools (search_endpoints -> call_api ->
+# query_data); each section routes to one, mirroring the yfinance/cnstats
+# "one default form, sections = tools" pattern.
+MASSIVE_SECTIONS: list[tuple[str, str]] = [
+    ("Search-Endpoints", "mcp=massive-mcp tool=search_endpoints param=query=<ask-agent>"),
+    ("Call-API", "mcp=massive-mcp tool=call_api param=path=<ask-agent> param=method=<ask-agent>"),
+    ("Query-Data", "mcp=massive-mcp tool=query_data param=sql=<ask-agent>"),
+]
+
 # ── Core collection ────────────────────────────────────────────────────
 CORE_COLLECTION = "core"
 CORE_COLLECTION_DESC = "Baseline cross-MCP view spanning edgar, edinet, yfinance, cnstats, cnreport, hkex."
@@ -289,6 +306,7 @@ CORE_ITEMS: list[tuple[str, str]] = [
     ("cnstats", "Categories"),
     ("cnreport", "管理层讨论与分析"),
     ("hkex", "Income Statement"),
+    ("massive", "Search-Endpoints"),
 ]
 
 
@@ -489,7 +507,7 @@ def seed(session, counts: Counts, dry_run: bool = False) -> None:
 
     # ── 2. Sources ──
     src_id: dict[str, int | None] = {}
-    for src_name in ("edgar", "edinet", "yfinance", "cnstats", "cnreport", "hkex"):
+    for src_name in ("edgar", "edinet", "yfinance", "cnstats", "cnreport", "hkex", "massive"):
         info = SOURCES[src_name]
         category_id = cat_id[info["category"]]
         src = goc_source(session, src_name, info, category_id, counts, dry_run)
@@ -540,6 +558,12 @@ def seed(session, counts: Counts, dry_run: bool = False) -> None:
         form = goc_form(session, src_id["hkex"], form_type, form_label, counts, dry_run)
         for sec_name, instr in HKEX_SECTIONS[form_type]:
             goc_section(session, form.id, sec_name, instr, counts, dry_run)
+
+    # ── 7c. massive default form ──
+    mv_form = goc_form(session, src_id["massive"], "default",
+                       "Massive.com composable API (search -> call -> query)", counts, dry_run)
+    for sec_name, instr in MASSIVE_SECTIONS:
+        goc_section(session, mv_form.id, sec_name, instr, counts, dry_run)
 
     # ── 8. Core collection ──
     coll = goc_collection(session, CORE_COLLECTION, CORE_COLLECTION_DESC, counts, dry_run)
