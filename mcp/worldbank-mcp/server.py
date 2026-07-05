@@ -22,17 +22,20 @@ ROOT = Path(__file__).resolve().parent.parent  # mcp/
 load_dotenv(ROOT / ".env")
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
-from cli_anything.daas.core.exceptions import DAASError
-from fastmcp import FastMCP
-
-app = FastMCP(name="worldbank-mcp")
-
+# daas-agent-harness holds the cli_anything.daas package; it must be on
+# sys.path BEFORE the top-level `from cli_anything...` import below. The
+# in-function imports (router, models) rely on this too.
 _HARNESS_ROOT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "daas-agent-harness",
 )
 if _HARNESS_ROOT not in sys.path:
     sys.path.insert(0, _HARNESS_ROOT)
+
+from cli_anything.daas.core.exceptions import DAASError
+from fastmcp import FastMCP
+
+app = FastMCP(name="worldbank-mcp")
 
 
 def _get_db_url() -> str:
