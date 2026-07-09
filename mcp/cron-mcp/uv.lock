@@ -236,6 +236,7 @@ dependencies = [
     { name = "apscheduler" },
     { name = "fastmcp" },
     { name = "mcp" },
+    { name = "mcp-models" },
     { name = "sqlalchemy" },
 ]
 
@@ -244,6 +245,7 @@ requires-dist = [
     { name = "apscheduler", specifier = ">=3.11.2" },
     { name = "fastmcp", specifier = ">=3.4.2" },
     { name = "mcp", specifier = ">=1.28.0" },
+    { name = "mcp-models", editable = "../models" },
     { name = "sqlalchemy", specifier = ">=2.0.51" },
 ]
 
@@ -725,6 +727,17 @@ sdist = { url = "https://files.pythonhosted.org/packages/c1/ee/94c6c50ffc5b5cf47
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2e/e1/4c1dc1fbb688641a712d34650c3d58bbbdcb314ddb75bc5817bbf33515a4/mcp-1.28.0-py3-none-any.whl", hash = "sha256:9c1e7cf3a9125557e418ecd4fed8e9adddce81b0dfdae4d6601d700f5beb71a4", size = 221959, upload-time = "2026-06-16T21:37:16.579Z" },
 ]
+
+[[package]]
+name = "mcp-models"
+version = "0.1.0"
+source = { editable = "../models" }
+dependencies = [
+    { name = "sqlalchemy" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "sqlalchemy", specifier = ">=2.0" }]
 
 [[package]]
 name = "mdurl"

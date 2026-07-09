@@ -32,6 +32,9 @@ Thumbs.db
 # dartlab pre-built parquet caches (auto-downloaded from HuggingFace on first call)
 mcp/dartlab-mcp/data/
 
+# cnreport-mcp downloaded-report cache (PDF + extracted text + outline)
+mcp/cnreport-mcp/.cache/
+
 # Stray SQLite from a :memory: URL misconfiguration
 :memory:
 

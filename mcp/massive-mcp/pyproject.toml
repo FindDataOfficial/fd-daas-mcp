@@ -1,0 +1,12 @@
+[project]
+name = "massive-mcp"
+version = "0.1.0"
+description = "Massive.com financial-data MCP — launch shim over the upstream mcp_massive package"
+requires-python = ">=3.12"
+dependencies = [
+    # Pre-built MCP server (stocks, options, forex, crypto, futures, fundamentals,
+    # analyst news, treasuries) exposed as the `mcp_massive` console script.
+    # Pinned to a tag: the upstream README warns it is experimental.
+    "mcp_massive @ git+https://github.com/massive-com/mcp_massive@v0.10.0",
+    "python-dotenv>=1.0",
+]

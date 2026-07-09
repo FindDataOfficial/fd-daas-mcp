@@ -44,7 +44,7 @@ from models import Base, Function, Schedule, Task, Datasource, ...
 | daas-mcp | `sources`, `daas_functions`, `daas_function_columns`, `observations` |
 | scrapling | `scraw_configs` |
 | dashboard | `datasources`, `datasource_columns` |
-| combine-mcp | `composites`, `upstreams`, `composite_tools`, `composite_chains` |
+| composite-mcp | `composites`, `upstreams`, `composite_tools`, `composite_chains` |
 
 Schema changes go in `mcp/models/models.py` first, then propagate to consumers.
 
@@ -54,14 +54,14 @@ Schema changes go in `mcp/models/models.py` first, then propagate to consumers.
 |--------|-----------|--------|-------|
 | leader-mcp | `mcp/leader-mcp/` | `from models import ...` | multi-harness registry |
 | cron-mcp | `mcp/cron-mcp/` | `from models import ...` | scheduler, `models.py` deleted |
-| daas-mcp | `mcp/daas-mcp/` | `from models import DaasSource, ...` | source-based registry, `models.py` deleted |
+| daas-mcp | `mcp/daas-mcp/` | `from models import DaasSource, ...` | source-based registry, `models.py` deleted; also hosts the process tools (LLM extraction + math indicators) relocated from the former process-mcp; `seed_massive_endpoints.py` registers Massive.com's 37 REST endpoints as `daas_functions`+columns + Economy `indicator_rules` (12 endpoints entitlement-gated); `backfill_massive.py` populates `scraw_massive_*` via a persistent `fastmcp.Client` (routes around the broken pipeline-bridge) |
 | dashboard-mcp | `mcp/dashboard-mcp/` | `from models import Datasource, ...` | no inline CREATE TABLE |
 | ckan-mcp | `mcp/ckan-mcp/` | inline models (ponytail) | dotenv loading added |
 | cnstats-mcp | `mcp/cnstats-mcp/` | `cli_anything.daas.core.models` | dotenv loading added |
 | worldbank-mcp | `mcp/worldbank-mcp/` | `cli_anything.daas.core.models` | dotenv loading added |
 | akshare-mcp | `mcp/akshare-mcp/` | `cli_anything.akshare.core.models` | untouched |
 | scrapling-*-mcp | `mcp/scrapling-*-mcp/` | own `init_db.py` | untouched |
-| combine-mcp | `mcp/combine-mcp/` | `from models import Composite, ...` | composite MCP — curate selected tools from upstreams + chained tools; one composite per process via `COMPOSITE` env |
+| composite-mcp | `mcp/composite-mcp/` | `from models import Composite, ...` | composite MCP — curate selected tools from upstreams + chained tools; one composite per process via `COMPOSITE` env |
 | hkreport-mcp | `mcp/hkreport-mcp/` | none (live HKEXnews + akshare) | HK filings + financials; 5 tools, edgartools-style; keyless |
 
 ### Deleted Files
@@ -73,6 +73,6 @@ Schema changes go in `mcp/models/models.py` first, then propagate to consumers.
 - `mcp/cron-mcp/models.py` — moved to `mcp/models/`
 - `mcp/daas-mcp/models.py` — moved to `mcp/models/`
 
-### combine-mcp model (one composite per process)
+### composite-mcp model (one composite per process)
 
-`combine-mcp` curates a composite MCP: selected tools from multiple upstream MCP servers (proxied verbatim via `create_proxy` + a lazy `FilterTools` transform + `mount(namespace=<upstream>)`) plus chained tools (linear pipelines with `$prev`/`$step[N]` reference resolution). **One composite served per process**, selected by the `COMPOSITE` env var — to serve a second composite, add another `.mcp.json` entry pointing at the same `server.py` with a different `COMPOSITE`. Selection is persisted in `daas.db` (`composites`/`upstreams`/`composite_tools`/`composite_chains`); management tools are always present and changes apply on restart. See `openspec/changes/add-combine-mcp/` for the full design.
+`composite-mcp` curates a composite MCP: selected tools from multiple upstream MCP servers (proxied verbatim via `create_proxy` + a lazy `FilterTools` transform + `mount(namespace=<upstream>)`) plus chained tools (linear pipelines with `$prev`/`$step[N]` reference resolution). **One composite served per process**, selected by the `COMPOSITE` env var — to serve a second composite, add another `.mcp.json` entry pointing at the same `server.py` with a different `COMPOSITE`. Selection is persisted in `daas.db` (`composites`/`upstreams`/`composite_tools`/`composite_chains`); management tools are always present and changes apply on restart. See `openspec/changes/archive/2026-06-28-add-combine-mcp/` for the full design.

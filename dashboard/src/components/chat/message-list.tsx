@@ -21,9 +21,10 @@ interface Message {
 interface Props {
   messages: Message[];
   loading?: boolean;
+  server?: string;
 }
 
-export default function MessageList({ messages, loading }: Props) {
+export default function MessageList({ messages, loading, server }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -44,7 +45,7 @@ export default function MessageList({ messages, loading }: Props) {
   return (
     <div className="flex-1 overflow-y-auto p-4">
       {messages.map((msg) => (
-        <MessageBubble key={msg.id} role={msg.role} parts={msg.parts} />
+        <MessageBubble key={msg.id} role={msg.role} parts={msg.parts} server={server} />
       ))}
       {loading && (
         <div className="flex justify-start mb-4">

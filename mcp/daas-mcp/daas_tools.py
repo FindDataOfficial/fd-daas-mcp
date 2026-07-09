@@ -157,6 +157,7 @@ def create_datasource(
     config_json: Optional[str] = None,
     category_id: Optional[int] = None,
     enabled: bool = True,
+    score: Optional[float] = None,
 ) -> dict:
     """Create a new managed datasource.
 
@@ -168,11 +169,12 @@ def create_datasource(
         config_json: Optional JSON object string of source config.
         category_id: Optional category id to assign this datasource to.
         enabled: Whether the datasource is enabled (default true).
+        score: Optional default priority/quality weight (float, e.g. 0.9). NULL means unset.
     """
     svc = _get_service()
     config = json.loads(config_json) if config_json else None
     try:
-        return _ok(svc.create_datasource(name, label, description, url, config, category_id, enabled))
+        return _ok(svc.create_datasource(name, label, description, url, config, category_id, enabled, score))
     except Exception as e:
         return _err(e)
 
@@ -187,11 +189,14 @@ def update_datasource(
     enabled: Optional[bool] = None,
     category_id: Optional[int] = None,
     clear_category: bool = False,
+    score: Optional[float] = None,
+    clear_score: bool = False,
 ) -> dict:
     """Update mutable fields of a datasource, identified by name or id.
 
     Pass clear_category=true to unset the category (move to root level).
-    Only supplied fields are changed.
+    Pass score=<float> to set the default score; pass clear_score=true to reset
+    the score back to NULL (unset). Only supplied fields are changed.
     """
     svc = _get_service()
     config = json.loads(config_json) if config_json else None
@@ -207,6 +212,8 @@ def update_datasource(
                 enabled=enabled,
                 category_id=category_id,
                 clear_category=clear_category,
+                score=score,
+                clear_score=clear_score,
             )
         )
     except Exception as e:
@@ -324,14 +331,38 @@ def add_to_collection(
     collection_name: str,
     source_name: str,
     section_name: Optional[str] = None,
+    score: Optional[float] = None,
 ) -> dict:
     """Add a datasource (or a specific datasource-section) to a collection.
 
     Omit section_name to add the whole datasource; supply section_name to
-    add only that section."""
+    add only that section. Optional score sets a per-collection score override
+    on the new item (NULL = inherit the datasource's default score)."""
     svc = _get_service()
     try:
-        return _ok(svc.add_to_collection(collection_name, source_name, section_name))
+        return _ok(svc.add_to_collection(collection_name, source_name, section_name, score))
+    except Exception as e:
+        return _err(e)
+
+
+def set_collection_item_score(
+    collection_name: str,
+    source_name: str,
+    section_name: Optional[str] = None,
+    score: Optional[float] = None,
+) -> dict:
+    """Set or clear the per-collection score override on an existing collection
+    item, identified by (collection_name, source_name, optional section_name).
+
+    Pass score=<float> to set the override; pass score=null (omit) to clear it
+    so the item falls back to the datasource's default score. Returns the
+    updated item with its resolved effective score, the raw item_score override,
+    and the source_default_score."""
+    svc = _get_service()
+    try:
+        return _ok(
+            svc.set_collection_item_score(collection_name, source_name, section_name, score)
+        )
     except Exception as e:
         return _err(e)
 

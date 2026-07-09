@@ -243,6 +243,17 @@ def _serialize_result(result) -> dict:
         return {"type": "unknown", "data": str(result)}
 
     if isinstance(result, pd.DataFrame):
+        # Preserve a DatetimeIndex (e.g. Ticker.history() daily/intraday
+        # bars) as a `date` column so downstream consumers — the daas
+        # pipeline bridge upserting into scraw_<slug> — can key on it.
+        # Without this, to_dict(orient="records") drops the index and the
+        # date is lost. Stringify to ISO date so the result is JSON-safe
+        # (pandas Timestamps are not json-serializable).
+        if isinstance(result.index, pd.DatetimeIndex):
+            result = result.reset_index(names="date")
+            result["date"] = result["date"].dt.strftime("%Y-%m-%d")
+        elif result.index.name is not None:
+            result = result.reset_index()
         clean = result.where(result.notna(), None)
         return {
             "type": "dataframe",

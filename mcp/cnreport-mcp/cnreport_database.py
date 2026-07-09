@@ -2,7 +2,7 @@
 
 SQLAlchemy engine + session factory over the shared mcp/daas.db, CRUD for
 the three cnreport tables (ReportDocument, ReportSection, EsIndexMeta).
-Mirrors combine_database.py.
+Mirrors composite_database.py.
 
 Usage:
     from cnreport_database import get_db

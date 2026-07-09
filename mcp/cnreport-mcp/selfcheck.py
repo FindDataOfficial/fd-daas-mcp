@@ -17,6 +17,8 @@ from pathlib import Path
 
 _TMP = tempfile.mkdtemp()
 os.environ["DAAS_DATABASE_URL"] = f"sqlite:///{_TMP}/selfcheck.db"
+# Keep the report cache off the repo during the self-check.
+os.environ["CNREPORT_CACHE_DIR"] = os.path.join(_TMP, "report_cache")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 _MODELS = Path(__file__).resolve().parent.parent / "models"
@@ -134,17 +136,30 @@ def check_company_api():
         fin = T.get_financials("600519")
         assert "income_statement" in fin and "balance_sheet" in fin and "cashflow" in fin, fin
 
-        # get_section — need to stub fetch_source for the PDF
-        _orig_fetch = T.fetch_source
-        T.fetch_source = lambda *_a, **_kw: (
-            "第三节 管理层讨论与分析\n经营情况良好。营业收入增长。\n"
-            "第四节 公司治理\n治理结构完善。\n"
-        )
+        # get_section — stub fetch_source_with_bytes (get_section now goes
+        # through report_cache.get_or_fetch). Assert cache miss then hit.
+        _calls = {"n": 0}
+        _orig_fetch = T.fetch_source_with_bytes
+
+        def fake_fetch(*_a, **_kw):
+            _calls["n"] += 1
+            return (
+                "第三节 管理层讨论与分析\n经营情况良好。营业收入增长。\n"
+                "第四节 公司治理\n治理结构完善。\n",
+                b"%PDF fake",
+            )
+
+        T.fetch_source_with_bytes = fake_fetch
         try:
             sec = T.get_section("600519", year=2023, section="管理层讨论与分析")
             assert "经营情况良好" in sec.get("text", ""), sec
+            assert _calls["n"] == 1, _calls  # cache miss → fetched once
+            # second call → cache hit, no re-fetch
+            sec2 = T.get_section("600519", year=2023, section="管理层讨论与分析")
+            assert "经营情况良好" in sec2["text"], sec2
+            assert _calls["n"] == 1, _calls  # still 1 — served from cache
         finally:
-            T.fetch_source = _orig_fetch
+            T.fetch_source_with_bytes = _orig_fetch
 
         print("  ✓ company API: get_company / list_filings / get_filing / get_financials / get_section")
     finally:
@@ -196,17 +211,19 @@ def check_catalog_and_special():
         # get_special_report — no section (no PDF download)
         r = T.get_special_report("600519", category="首发")
         assert "error" not in r and r["pdf_url"].endswith(".PDF"), r
-        # get_special_report — with section (stub fetch_source)
-        _orig_fetch = T.fetch_source
-        T.fetch_source = lambda *_a, **_kw: (
+        # get_special_report — with section (stub fetch_source_with_bytes;
+        # path now goes through report_cache.get_or_fetch)
+        _orig_fetch = T.fetch_source_with_bytes
+        T.fetch_source_with_bytes = lambda *_a, **_kw: (
             "第一节 募集资金运用\n募资10亿。\n"
-            "第二节 风险因素\n市场风险。\n"
+            "第二节 风险因素\n市场风险。\n",
+            b"%PDF fake",
         )
         try:
             r = T.get_special_report("600519", category="首发", section="募集资金运用")
             assert "error" not in r and "募资10亿" in r["text"], r
         finally:
-            T.fetch_source = _orig_fetch
+            T.fetch_source_with_bytes = _orig_fetch
         print("  ✓ catalog + special: list_report_types / list_filings(category) / get_special_report")
     finally:
         cninfo_client._post_json = _orig_post

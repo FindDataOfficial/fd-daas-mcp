@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent.parent  # mcp/ — on sys.path so `import models` works
 # parents[2] reaches the repo root from mcp/leader-mcp/server.py (parent.parent
 # is mcp/, parent.parent.parent is cli-anything/). The shared .env (LLM_*,
-# DAAS_DATABASE_URL) lives at the repo root — matching process-mcp / daas-mcp /
+# DAAS_DATABASE_URL) lives at the repo root — matching daas-mcp /
 # cnreport-mcp. Required so the crewai-data-workflow specialist-agent LLM path
 # sees LLM_* when run as an MCP server.
 REPO_ROOT = Path(__file__).resolve().parents[2]  # cli-anything/
@@ -62,15 +62,26 @@ from gateway_tools import (
     add_data_mcp,
     remove_data_mcp,
     get_data_mcp,
+    # generic aliases (category-agnostic; same implementation as *_data_mcp)
+    list_mcps,
+    list_mcp_tools,
+    call_mcp,
+    add_mcp,
+    remove_mcp,
+    get_mcp,
 )
 from workflow_tools import (
     list_agent_models,
+    list_model_tiers,
     create_specialist_agent,
     list_specialist_agents,
+    update_specialist_agent,
+    delete_specialist_agent,
     create_workflow,
     add_workflow_step,
     get_workflow,
     list_workflows,
+    build_workflow_from_goal,
     run_workflow,
     run_workflow_step,
     get_workflow_run,
@@ -104,15 +115,28 @@ app.add_tool(add_data_mcp)
 app.add_tool(remove_data_mcp)
 app.add_tool(get_data_mcp)
 
+# Generic aliases — category-agnostic surface for non-data upstreams
+# (cron-mcp, alerts-mcp, dashboard-mcp, …). Same implementation as *_data_mcp.
+app.add_tool(list_mcps)
+app.add_tool(list_mcp_tools)
+app.add_tool(call_mcp)
+app.add_tool(add_mcp)
+app.add_tool(remove_mcp)
+app.add_tool(get_mcp)
+
 # crewai-data-workflow tools — specialist agents + step-by-step workflows.
-# (LLM registry + agent registry + workflow definition + execution.)
+# (LLM registry + tier registry + agent registry + workflow definition + builder + execution.)
 app.add_tool(list_agent_models)
+app.add_tool(list_model_tiers)
 app.add_tool(create_specialist_agent)
 app.add_tool(list_specialist_agents)
+app.add_tool(update_specialist_agent)
+app.add_tool(delete_specialist_agent)
 app.add_tool(create_workflow)
 app.add_tool(add_workflow_step)
 app.add_tool(get_workflow)
 app.add_tool(list_workflows)
+app.add_tool(build_workflow_from_goal)
 app.add_tool(run_workflow)
 app.add_tool(run_workflow_step)
 app.add_tool(get_workflow_run)
@@ -120,7 +144,7 @@ app.add_tool(get_workflow_run)
 
 def _run_workflow_cli(name: str) -> int:
     """Run a workflow in-process (no stdio server), print the JSON run summary,
-    and return an exit code. Mirrors `process-mcp --run-rule` / `daas-mcp
+    and return an exit code. Mirrors `daas-mcp --run-rule` / `daas-mcp
     --fetch-item` so a workflow can be scheduled via cron-mcp.
 
     Relative DAAS_DATABASE_URL is resolved against the repo root by

@@ -2,8 +2,9 @@
 
 For every enabled row in `leader_upstreams`, upsert a specialist agent named
 `<upstream>-agent` bound to that upstream, with a templated role/goal/backstory
-and `model=None` (shared `LLM_*` fallback). Re-running updates role/goal/backstory
-but preserves any per-agent `model` a user has set (see `preserve_model`).
+and `model="fast"` (the `fast` tier alias → `LEADER_MODEL_FAST`, the data-fetch
+default). Re-running updates role/goal/backstory but preserves any per-agent
+`model` a user has set (see `preserve_model`).
 
 Idempotent on name. Flags: `--dry-run` (plan, write nothing), `--unseed`
 (delete the seeded rows + print a rollback note). Safe to run via:
@@ -105,7 +106,7 @@ def main() -> int:
     for u in upstreams:
         name = _agent_name(u["name"])
         tpl = _agent_template(u["name"])
-        print(f"  - {name} -> upstream='{u['name']}' role='{tpl['role']}' model=None")
+        print(f"  - {name} -> upstream='{u['name']}' role='{tpl['role']}' model=fast")
     if args.dry_run:
         print("--dry-run: wrote nothing.")
         return 0
@@ -120,7 +121,7 @@ def main() -> int:
             role=tpl["role"],
             goal=tpl["goal"],
             backstory=tpl["backstory"],
-            model=None,  # shared LLM_* fallback
+            model="fast",  # fast tier alias (LEADER_MODEL_FAST) — data-fetch default
             enabled=True,
             preserve_model=True,  # don't clobber a user-set model on re-seed
         )

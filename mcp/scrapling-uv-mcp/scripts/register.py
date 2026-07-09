@@ -10,7 +10,7 @@ Loads `<name>.py` (must live next to this file), reads its module-level
 
   • datasource_columns — N rows for the source's columns.
     Looks up the parent id in `sources` (NOT `datasources` — `datasources` is
-    combine-mcp's legacy MCP-server table). Runs with `PRAGMA foreign_keys=OFF`
+    composite-mcp's legacy MCP-server table). Runs with `PRAGMA foreign_keys=OFF`
     because `datasource_columns.datasource_id` declares a stale FK to
     `datasources` that the real parent (`sources`) doesn't satisfy for ids ≥ 5.
 

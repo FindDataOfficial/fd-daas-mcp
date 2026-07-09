@@ -1,29 +1,7 @@
 // @ts-nocheck
 import { getDb, saveDb } from '@/lib/db';
-import { REPO_ROOT } from '@/lib/paths';
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-
-const ROOT_ENV = path.join(REPO_ROOT, '.env');
-
-function syncToEnv(key: string, value: string) {
-  let content = '';
-  if (fs.existsSync(ROOT_ENV)) {
-    content = fs.readFileSync(ROOT_ENV, 'utf-8');
-  }
-
-  const regex = new RegExp(`^${key}=.*$`, 'm');
-  const line = `${key}=${value}`;
-
-  if (regex.test(content)) {
-    content = content.replace(regex, line);
-  } else {
-    content = content.trimEnd() + '\n' + line + '\n';
-  }
-
-  fs.writeFileSync(ROOT_ENV, content, 'utf-8');
-}
+import { syncKeyToEnv, removeKeyFromEnv } from '@/lib/env-sync';
 
 export async function PUT(request: NextRequest) {
   try {
@@ -72,14 +50,12 @@ export async function PUT(request: NextRequest) {
 
     saveDb('daas');
 
-    // Bootstrap vars: sync to root .env
-    let restartRequired = false;
-    if (effectiveCategory === 'bootstrap' && effectiveScope === 'global') {
-      syncToEnv(key, value);
-      restartRequired = true;
-    }
+    // Sync every managed key through to the real .env file(s): globals → root
+    // .env, per-MCP overrides → mcp/<scope>/.env. MCPs load .env only at
+    // startup, so any change is restart-required.
+    syncKeyToEnv(effectiveScope, key, value);
 
-    return NextResponse.json({ ok: true, restartRequired });
+    return NextResponse.json({ ok: true, restartRequired: true });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
@@ -95,10 +71,23 @@ export async function DELETE(request: NextRequest) {
     }
 
     const db = await getDb('daas');
+
+    // Read the row's scope + key before deleting so we can remove the matching
+    // line from the relevant .env file.
+    const stmt = db.prepare('SELECT scope, key FROM settings WHERE id = ?');
+    stmt.bind([id]);
+    let row: any = null;
+    if (stmt.step()) row = stmt.getAsObject();
+    stmt.free();
+
     db.run('DELETE FROM settings WHERE id = ?', [id]);
     saveDb('daas');
 
-    return NextResponse.json({ ok: true });
+    if (row?.key) {
+      removeKeyFromEnv(row.scope || 'global', row.key);
+    }
+
+    return NextResponse.json({ ok: true, restartRequired: !!row?.key });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }

@@ -2,10 +2,11 @@ import {
   streamText,
   createUIMessageStreamResponse,
   convertToModelMessages,
+  stepCountIs,
   type UIMessage,
 } from 'ai';
 import { getModel, MissingApiKeyError, type RawProviderConfig } from '@/lib/providers';
-import { getMCPTools } from '@/lib/mcp-client';
+import { getMCPTools, getMCPClientRawTools } from '@/lib/mcp-client';
 
 export const maxDuration = 120;
 
@@ -140,11 +141,26 @@ function isRawConfig(model: any): model is RawProviderConfig {
 
 export async function POST(req: Request) {
   try {
-    const { messages }: { messages: UIMessage[] } = await req.json();
+    const { messages, server }: { messages: UIMessage[]; server?: string } = await req.json();
 
-    // Load MCP tools (optional)
+    // Resolve the MCP server for this chat session. Default is composite-mcp
+    // (see mcp-client.ts defaultServer()); the /chat selector sends `server`
+    // explicitly so the user can pick leader-mcp etc.
+    const mcpServer = server || process.env.MCP_SERVER || 'composite-mcp';
+    const useRawClient = mcpServer === 'composite-mcp';
+
+    // Load MCP tools (optional). composite-mcp uses the raw SDK Client so the
+    // same client can back the /api/mcp-ui/* AppRenderer handlers and so
+    // _meta.ui.resourceUri survives in tool results. Other servers use
+    // @ai-sdk/mcp unchanged.
     let mcpTools: Record<string, any> | undefined;
-    try { mcpTools = await getMCPTools(); } catch { /* unavailable */ }
+    try {
+      mcpTools = useRawClient
+        ? await getMCPClientRawTools(mcpServer)
+        : await getMCPTools(mcpServer);
+    } catch {
+      /* unavailable */
+    }
 
     const model = getModel();
 
@@ -166,7 +182,8 @@ export async function POST(req: Request) {
       system: SYSTEM_PROMPT,
       messages: await convertToModelMessages(messages),
       ...(mcpTools && Object.keys(mcpTools).length > 0 ? { tools: mcpTools } : {}),
-      maxSteps: 10,
+      // ai@5 renamed maxSteps -> stopWhen(stepCountIs(n))
+      stopWhen: stepCountIs(10),
     });
 
     return createUIMessageStreamResponse({

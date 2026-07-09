@@ -20,7 +20,7 @@ class SourceRouter:
     """Routes function calls to the correct source adapter."""
 
     # Known source prefixes in order of priority
-    SOURCE_PREFIXES = ["akshare_", "worldbank_", "ckan_", "cnstats_"]
+    SOURCE_PREFIXES = ["akshare_", "worldbank_", "ckan_", "cnstats_", "wbdata_"]
 
     def route(self, function_name: str, **params: Any) -> Any:
         """Resolve function name → source adapter → fetch.

@@ -1,0 +1,35 @@
+{
+  "expectations": [
+    {
+      "text": "Built a purpose-built MCP for meteostat",
+      "passed": true,
+      "evidence": "server.py \u2014 3 tools (station_daily/station_info/find_stations_nearby), lazy-imports meteostat, uv sync clean, tools register."
+    },
+    {
+      "text": "Registered the meteostat datasource + its columns",
+      "passed": true,
+      "evidence": "1 source, 1 function (station_daily), 11 daas_function_columns (date/tavg/tmin/tmax/prcp/snow/wdir/wspd/wpgt/pres/tsun), 1 form + 1 routing section."
+    },
+    {
+      "text": "Matcher left weather columns UNMATCHED (0 mapped, recognizing no canonical fit)",
+      "passed": true,
+      "evidence": "match_columns_to_indicators.py: 0 mapped, 11 unmatched; highest fuzzy ratio 0.667 (well below 0.85)."
+    },
+    {
+      "text": "Did NOT mint new canonical indicators for one-off weather columns (count stayed at 34)",
+      "passed": true,
+      "evidence": "canonical_indicators count stayed at 34; column_indicator_mappings stayed empty. Explicitly cited the 'don't mint one-offs' principle."
+    },
+    {
+      "text": "Skipped entity registration (weather stations aren't stocks/countries)",
+      "passed": true,
+      "evidence": "entities=0, entity_datasource_links=0; Step-4 'unrecognized domain' branch taken."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 5,
+    "failed": 0,
+    "total": 5
+  }
+}

@@ -33,13 +33,25 @@ from models.models import (  # noqa: F401
     # dashboard
     Datasource,
     DatasourceColumn,
+    Dashboard,
     # settings
     Setting,
-    # combine-mcp
+    # composite-mcp
     Composite,
     Upstream,
     CompositeTool,
     CompositeChain,
+    # daas-mcp (process tools — relocated from process-mcp)
+    ProcessRule,
+    ProcessResult,
+    IndicatorRule,
+    # daas-mcp indicator collections (named groups of indicators + score overrides + audit log)
+    IndicatorCollection,
+    IndicatorCollectionItem,
+    IndicatorCollectionChange,
+    # alerts-mcp
+    AlertRule,
+    AlertEvent,
     # cnreport-mcp
     ReportDocument,
     ReportSection,

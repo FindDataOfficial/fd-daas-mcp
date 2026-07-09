@@ -60,8 +60,10 @@ def list_outline(source: str, fetcher: str = "uv") -> dict:
         source: report URL or local file path (.html/.pdf/.txt).
         fetcher: reserved (v1 uses httpx/pypdf); default "uv".
     """
+    import report_cache
+
     try:
-        text = T.fetch_source(source, fetcher)
+        text, _ = report_cache.get_or_fetch(source, fetcher)
     except Exception as e:
         return {"error": f"fetch failed: {type(e).__name__}: {e}"}
     outline = T.parse_outline(text)
@@ -85,8 +87,10 @@ def extract_section(
         company/stock_code/year: optional provenance metadata, persisted with the report.
         fetcher: reserved (v1 uses httpx/pypdf).
     """
+    import report_cache
+
     try:
-        text = T.fetch_source(source, fetcher)
+        text, _ = report_cache.get_or_fetch(source, fetcher)
     except Exception as e:
         return {"error": f"fetch failed: {type(e).__name__}: {e}"}
     outline = T.parse_outline(text)
@@ -482,6 +486,76 @@ def get_special_report(
     return T.get_special_report(
         ticker_or_name, category=category, year=year, section=section, limit=limit
     )
+
+
+# ── three major financial statements (三大报表) ─────────────────
+
+
+@app.tool
+def get_financial_statements(
+    ticker_or_name: str,
+    year: int,
+    form: str = "年度报告",
+) -> dict:
+    """Extract the three major financial statements (三大报表) as text.
+
+    Resolves the company's filing PDF for ``(ticker, year, form)`` via the
+    report cache (no re-download on repeat), parses the table of contents,
+    and returns each statement's body text:
+
+      - ``statements.income_statement`` (利润表)       — prefers 合并利润表
+      - ``statements.balance_sheet`` (资产负债表)       — prefers 合并资产负债表
+      - ``statements.cashflow`` (现金流量表)            — prefers 合并现金流量表
+
+    Returns section **text only** — never PDF bytes. Statements not located
+    in the TOC are listed in ``missing`` (with the full ``available`` title
+    list so the caller can fall back to ``get_section`` with a custom selector).
+
+    Args:
+        ticker_or_name: ticker or name (see get_company).
+        year: fiscal year.
+        form: form name; defaults to "年度报告".
+
+    Returns: {stock_code, company_name, year, form, pdf_url, cached,
+              statements: {...}, missing: [...], available: [...]} or {error}.
+    """
+    return T.get_financial_statements(ticker_or_name, year, form=form)
+
+
+# ── cache management tools ─────────────────────────────────────
+
+
+@app.tool
+def list_cache() -> dict:
+    """List cached annual reports.
+
+    Each entry carries the parsed provenance (``stock_code`` / ``year`` /
+    ``form`` / ``announcement_id`` for convenience-tool fetches, or
+    ``kind: "url"`` for raw ``extract_section``/``list_outline`` URL fetches),
+    ``cached_at`` (file mtime, ISO-8601 UTC), and ``size`` (sum of its
+    ``.pdf`` + ``.txt`` + ``.outline.json``).
+    """
+    import report_cache
+
+    return report_cache.list_cache()
+
+
+@app.tool
+def clear_cache(
+    stock_code: Optional[str] = None, year: Optional[int] = None
+) -> dict:
+    """Evict cached annual reports.
+
+    Args:
+        stock_code: when set, evict only entries for that stock.
+        year: when set alongside ``stock_code``, evict only that stock+year.
+              Both unset → evict everything.
+
+    Returns: {removed, cache_dir}.
+    """
+    import report_cache
+
+    return report_cache.clear_cache(stock_code=stock_code, year=year)
 
 
 if __name__ == "__main__":

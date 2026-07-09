@@ -9,7 +9,10 @@ describe('Settings Page', () => {
 
     // Runtime section
     cy.contains('Runtime Settings').should('exist');
-    cy.contains('Live').should('exist');
+    // (The runtime section used to carry a "Live" badge; it now shares the
+    // "Restart Required" badge with bootstrap — already asserted above. The
+    // runtime section is covered by the Runtime Settings heading + its
+    // description renders below.)
 
     // Per-MCP section
     cy.contains('Per-MCP Proxy Overrides').should('exist');
@@ -58,9 +61,11 @@ describe('Settings Page', () => {
     cy.contains('HTTP_PROXY').should('exist');
     // Type a value
     cy.get('input[type="text"]').eq(0).clear().type('http://test-proxy:8080');
-    // Save
+    // Save — runtime edits require a restart, so the modal stays open with a
+    // restart warning (ponytail: keep modal open). Dismiss it to close.
     cy.contains('button', 'Save').click();
-    // Modal closes
+    cy.contains('Restart required', { timeout: 5000 }).should('exist');
+    cy.contains('button', 'OK').click();
     cy.get('[role="dialog"], .fixed').should('not.exist');
     // Value appears in table
     cy.contains('Runtime Settings').parent().contains('http://test-proxy:8080').should('exist');
@@ -103,6 +108,11 @@ describe('Settings Page', () => {
     });
     cy.get('input[type="text"]').eq(0).clear().type('socks5://to-clear:1080');
     cy.contains('button', 'Save').click();
+    // Save keeps the modal open with a restart warning — dismiss it before
+    // reopening the row to clear.
+    cy.contains('Restart required', { timeout: 5000 }).should('exist');
+    cy.contains('button', 'OK').click();
+    cy.get('[role="dialog"], .fixed').should('not.exist');
 
     // Now open again and clear
     cy.contains('Per-MCP Proxy Overrides').parent().within(() => {

@@ -1,6 +1,6 @@
 """Database + upstream-client helpers for leader-mcp's data gateway.
 
-Mirrors leader_database.py / combine_database.py: SQLAlchemy engine + session
+Mirrors leader_database.py / composite_database.py: SQLAlchemy engine + session
 factory over the shared mcp/daas.db, CRUD for the `leader_upstreams` table,
 and a helper to build a per-call fastmcp.Client for an upstream.
 

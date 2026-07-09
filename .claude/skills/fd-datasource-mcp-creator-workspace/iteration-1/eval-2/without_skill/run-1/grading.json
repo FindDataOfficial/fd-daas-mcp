@@ -1,0 +1,30 @@
+{
+  "expectations": [
+    {
+      "text": "Added 3 new canonical indicators (settle_price, open_interest, warehouse_stocks) to the vocabulary",
+      "passed": true,
+      "evidence": "Added 3 indicators with aliases. NOTE: baseline discovered the skill's canonical-indicator concept on disk and reused it \u2014 this is a contamination (the baseline had access to the skill files), so this eval is a weak differentiator."
+    },
+    {
+      "text": "Re-seeded so canonical_indicators has 37 rows (34 seed + 3 new)",
+      "passed": true,
+      "evidence": "37 rows in throwaway DB."
+    },
+    {
+      "text": "Matcher resolved all 3 columns as exact, confirmed",
+      "passed": true,
+      "evidence": "3/3 exact, conf 1.0, confirmed."
+    },
+    {
+      "text": "Did not invent spurious canonical names beyond the 3",
+      "passed": true,
+      "evidence": "Exactly 3 added."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 4,
+    "failed": 0,
+    "total": 4
+  }
+}

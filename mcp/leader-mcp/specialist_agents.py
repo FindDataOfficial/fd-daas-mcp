@@ -7,7 +7,7 @@ composes these agents into step-by-step workflows.
 
 Three concerns, in order:
 
-1. **LLM registry** (`LEADER_MODELS` JSON, mirroring process-mcp's `PROCESS_MODELS`):
+1. **LLM registry** (`LEADER_MODELS` JSON, mirroring daas-mcp's `PROCESS_MODELS`):
    `{name: {model, base_url?, api_key?, provider?, vision?}}` with a shared
    `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL` fallback. `build_llm(name)`
    returns a `(llm, error, reason)` triple: `error` set = hard config error
@@ -37,7 +37,7 @@ from gateway_tools import call_data_mcp_sync, list_data_mcp_tools_sync
 
 
 # ═══════════════════════════════════════════════════════════════
-# LLM registry (LEADER_MODELS, mirrors process-mcp PROCESS_MODELS)
+# LLM registry (LEADER_MODELS, mirrors daas-mcp PROCESS_MODELS)
 # ═══════════════════════════════════════════════════════════════
 
 _DEFAULT_MODEL = "gpt-4o"
@@ -49,7 +49,7 @@ def load_models() -> dict:
 
     Shape: `{name: {model, base_url?, api_key?, provider?, vision?}}`. Per-model
     fields fall back to the shared `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`
-    env (the same shared OpenAI-compatible endpoint process-mcp / cnreport-mcp
+    env (the same shared OpenAI-compatible endpoint daas-mcp / cnreport-mcp
     use). When `LEADER_MODELS` is unset, a single `"default"` entry is built from
     the shared env.
     """
@@ -94,9 +94,77 @@ def load_models() -> dict:
 
 
 def reset_models_cache() -> None:
-    """Clear the cached model registry (used by tests / selfcheck)."""
+    """Clear the cached model registry (used by tests / selfcheck).
+
+    Also invalidates tier resolution transitively — `resolve_tier` reads env
+    vars directly and resolves against `load_models()`, so once the model
+    cache is cleared the next tier lookup sees fresh state.
+    """
     global _MODELS
     _MODELS = None
+
+
+# ═══════════════════════════════════════════════════════════════
+# Model tiers (high / balance / fast) — role aliases over LEADER_MODELS
+# ═══════════════════════════════════════════════════════════════
+
+# Tier aliases accepted wherever a `model` is accepted (agents, steps, builder).
+_TIER_ALIASES = frozenset({"high", "balance", "fast"})
+
+# Tier alias → env var holding the LEADER_MODELS entry name for that tier.
+_TIER_ENV = {
+    "high": "LEADER_MODEL_HIGH",
+    "balance": "LEADER_MODEL_BALANCE",
+    "fast": "LEADER_MODEL_FAST",
+}
+
+
+def resolve_tier(alias: str) -> Tuple[Optional[dict], Optional[str]]:
+    """Resolve a tier alias to its concrete model spec.
+
+    Returns `(cfg, error)`:
+    - `(cfg, None)` — alias resolved to a `LEADER_MODELS` entry's spec.
+    - `(None, None)` — tier env var is unset (caller falls back to the shared
+      `LLM_*` path, same as a `null` model).
+    - `(None, error)` — tier env var names an entry NOT in `LEADER_MODELS`
+      (hard configuration error; the caller surfaces it, no fetch, no fallback).
+    """
+    env_var = _TIER_ENV[alias]
+    entry_name = os.environ.get(env_var, "").strip()
+    if not entry_name:
+        return None, None  # unset → soft (fall through to shared fallback)
+    cfg = load_models().get(entry_name)
+    if cfg is None:
+        return None, f"tier '{alias}' → '{entry_name}' not in LEADER_MODELS"
+    return cfg, None
+
+
+def list_model_tiers() -> dict:
+    """Return the resolved tier mapping.
+
+    Each tier is one of:
+    - `null` — the tier's env var is unset.
+    - `{entry, model, provider, vision}` — resolved to a `LEADER_MODELS` entry.
+    - `{entry, error}` — the env var names an entry missing from `LEADER_MODELS`.
+    """
+    models = load_models()
+    tiers: dict = {}
+    for alias, env_var in _TIER_ENV.items():
+        entry_name = os.environ.get(env_var, "").strip()
+        if not entry_name:
+            tiers[alias] = None
+            continue
+        cfg = models.get(entry_name)
+        if cfg is None:
+            tiers[alias] = {"entry": entry_name, "error": "not in LEADER_MODELS"}
+        else:
+            tiers[alias] = {
+                "entry": entry_name,
+                "model": cfg["model"],
+                "provider": cfg.get("provider"),
+                "vision": cfg.get("vision", False),
+            }
+    return {"tiers": tiers}
 
 
 def _litellm_model_str(cfg: dict) -> str:
@@ -117,16 +185,24 @@ def _litellm_model_str(cfg: dict) -> str:
 
 
 def build_llm(model_name: Optional[str]) -> Tuple[Any, Optional[str], Optional[str]]:
-    """Resolve a named model into a CrewAI `LLM`.
+    """Resolve a named model (or tier alias) into a CrewAI `LLM`.
+
+    `model_name` may be:
+    - a tier alias (`high` / `balance` / `fast`) → resolved via `resolve_tier`
+      to a `LEADER_MODELS` entry. A dangling tier (env var names a missing
+      entry) is a hard error. An unset tier falls through to the shared
+      `LLM_*` fallback (same as `null`).
+    - a concrete `LEADER_MODELS` entry name → resolved directly.
+    - `null` → shared `LLM_*` fallback.
 
     Returns `(llm, error, reason)`:
     - `llm` set, `error=None`, `reason=None` → ready to run a crew.
     - `llm=None`, `error` set → hard config error (caller returns it as the
       step's error, no fetch, no fallback). E.g. named model not in registry,
-      or a named model missing api_key/base_url.
+      a dangling tier, or a named model missing api_key/base_url.
     - `llm=None`, `error=None`, `reason` set → soft "no LLM available" (caller
       falls back to `_direct_fetch`). E.g. crewai not installed, or the shared
-      fallback (model=None) has no LLM_* env, or LLM construction raised.
+      fallback has no LLM_* env, or LLM construction raised.
     """
     try:
         from crewai import LLM  # type: ignore
@@ -134,12 +210,26 @@ def build_llm(model_name: Optional[str]) -> Tuple[Any, Optional[str], Optional[s
         return None, None, "crewai unavailable"
 
     models = load_models()
-    if model_name is not None:
+    label = model_name
+
+    if model_name in _TIER_ALIASES:
+        tier_cfg, tier_err = resolve_tier(model_name)
+        if tier_err is not None:
+            # dangling tier (env var names a missing entry) → hard error
+            return None, tier_err, None
+        if tier_cfg is not None:
+            cfg = tier_cfg  # resolved tier entry → use it directly
+        else:
+            # tier env var unset → fall through to the shared LLM_* fallback
+            cfg = models.get("default") or (next(iter(models.values()), None) if models else None)
+            label = "default"
+            if cfg is None or not cfg.get("api_key") or not cfg.get("base_url"):
+                return None, None, "no LLM configured (set LEADER_MODELS or LLM_*)"
+    elif model_name is not None:
         cfg = models.get(model_name)
         if cfg is None:
             # named but not in LEADER_MODELS — surface the misconfig (hard error)
             return None, f"model '{model_name}' not configured", None
-        label = model_name
     else:
         # shared fallback: prefer "default", else first registered, else none
         cfg = models.get("default") or (next(iter(models.values()), None) if models else None)
@@ -161,7 +251,8 @@ def build_llm(model_name: Optional[str]) -> Tuple[Any, Optional[str], Optional[s
 def list_agent_models() -> dict:
     """List configured agent models (api keys never serialized).
 
-    Returns `{models: [{name, model, provider, base_url, vision}, ...]}`.
+    Returns `{models: [{name, model, provider, base_url, vision}, ...],
+    tiers: {high|balance|fast: {entry, model, provider, vision} | null | {entry, error}}}`.
     """
     models = load_models()
     return {
@@ -174,7 +265,8 @@ def list_agent_models() -> dict:
                 "vision": c.get("vision", False),
             }
             for n, c in models.items()
-        ]
+        ],
+        "tiers": list_model_tiers()["tiers"],
     }
 
 
@@ -362,7 +454,12 @@ def run_specialist_step(agent: dict, request: str, model_override: Optional[str]
     when the direct path was used so it is never silent.
     """
     upstream = agent["upstream"]
-    model_name = model_override or agent.get("model")
+    # Resolution order: step override → agent's own model → `fast` tier default.
+    # A null step model now defaults to the `fast` tier (data-fetch default)
+    # rather than the shared `LLM_*` fallback. When `LEADER_MODEL_FAST` is unset,
+    # `build_llm("fast")` falls through to the shared `LLM_*` fallback (and on to
+    # the deterministic direct path), preserving the previous soft-fallback behavior.
+    model_name = model_override or agent.get("model") or "fast"
     llm, error, reason = build_llm(model_name)
 
     if error is not None:

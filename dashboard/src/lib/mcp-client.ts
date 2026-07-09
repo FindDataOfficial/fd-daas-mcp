@@ -5,14 +5,37 @@ import { REPO_ROOT } from './paths';
 
 type MCPClient = Awaited<ReturnType<typeof experimental_createMCPClient>>;
 
-let _client: MCPClient | null = null;
-let _tools: Record<string, any> | null = null;
-let _connecting: Promise<MCPClient> | null = null;
-let _lastError: Error | null = null;
+interface ServerEntry {
+  client: MCPClient | null;
+  tools: Record<string, any> | null;
+  connecting: Promise<MCPClient> | null;
+  lastError: Error | null;
+}
 
+// Per-server cache so the dashboard can talk to more than one MCP from a
+// single process (e.g. leader-mcp for chat/workflows AND daas-mcp for the
+// rules/indicators pages) without resetting each other's connection.
+const _servers = new Map<string, ServerEntry>();
 
-function getServerConfig(): { command: string; args: string[]; cwd: string; env?: Record<string, string> } {
-  const server = process.env.MCP_SERVER || 'leader-mcp';
+function defaultServer(): string {
+  // Global default for non-chat callers (workflows API, collections chat,
+  // health checks) — these need leader-mcp's tools. The /chat page and
+  // /api/chat route default to composite-mcp independently (see chat/page.tsx
+  // DEFAULT_SERVER and api/chat/route.ts), so the chat default switch does
+  // not ripple to these callers.
+  return process.env.MCP_SERVER || 'leader-mcp';
+}
+
+function entryFor(server: string): ServerEntry {
+  let e = _servers.get(server);
+  if (!e) {
+    e = { client: null, tools: null, connecting: null, lastError: null };
+    _servers.set(server, e);
+  }
+  return e;
+}
+
+export function getServerConfig(server: string): { command: string; args: string[]; cwd: string; env?: Record<string, string> } {
   const serverDir = path.join(REPO_ROOT, 'mcp', server);
   const modelsDir = path.join(REPO_ROOT, 'mcp', 'models');
 
@@ -31,18 +54,19 @@ function getServerConfig(): { command: string; args: string[]; cwd: string; env?
   };
 }
 
-export async function getMCPClient(): Promise<MCPClient> {
-  if (_client) {
-    return _client;
+export async function getMCPClient(server: string = defaultServer()): Promise<MCPClient> {
+  const e = entryFor(server);
+  if (e.client) {
+    return e.client;
   }
 
-  if (_connecting) {
-    return _connecting;
+  if (e.connecting) {
+    return e.connecting;
   }
 
-  const config = getServerConfig();
+  const config = getServerConfig(server);
 
-  _connecting = (async () => {
+  e.connecting = (async () => {
     try {
       const transport = new Experimental_StdioMCPTransport({
         command: config.command,
@@ -51,44 +75,56 @@ export async function getMCPClient(): Promise<MCPClient> {
         env: config.env,
       });
 
-      _client = await experimental_createMCPClient({ transport });
-      _lastError = null;
-      return _client;
+      e.client = await experimental_createMCPClient({ transport });
+      e.lastError = null;
+      return e.client;
     } catch (err) {
-      _lastError = err instanceof Error ? err : new Error(String(err));
-      _connecting = null;
-      throw _lastError;
+      e.lastError = err instanceof Error ? err : new Error(String(err));
+      e.connecting = null;
+      throw e.lastError;
     }
   })();
 
-  return _connecting;
+  return e.connecting;
 }
 
-export async function getMCPTools(): Promise<Record<string, any>> {
-  if (_tools) return _tools;
+export async function getMCPTools(server: string = defaultServer()): Promise<Record<string, any>> {
+  const e = entryFor(server);
+  if (e.tools) return e.tools;
 
-  const client = await getMCPClient();
-  _tools = await client.tools();
-  return _tools;
+  const client = await getMCPClient(server);
+  e.tools = await client.tools();
+  return e.tools;
 }
 
-export function resetMCPClient(): void {
-  if (_client) {
-    _client.close().catch(() => {});
+/**
+ * Reset one server's cached client (pass its name) or every cached server
+ * (no argument). Existing no-arg callers get the old "reset everything"
+ * behavior.
+ */
+export function resetMCPClient(server?: string): void {
+  const resetOne = (s: string) => {
+    const e = _servers.get(s);
+    if (!e) return;
+    if (e.client) {
+      e.client.close().catch(() => {});
+    }
+    _servers.delete(s);
+  };
+  if (server) {
+    resetOne(server);
+  } else {
+    for (const s of Array.from(_servers.keys())) resetOne(s);
   }
-  _client = null;
-  _tools = null;
-  _connecting = null;
-  _lastError = null;
 }
 
-export function getMCPError(): Error | null {
-  return _lastError;
+export function getMCPError(server: string = defaultServer()): Error | null {
+  return entryFor(server).lastError;
 }
 
-export async function checkMCPHealth(): Promise<boolean> {
+export async function checkMCPHealth(server: string = defaultServer()): Promise<boolean> {
   try {
-    const client = await getMCPClient();
+    const client = await getMCPClient(server);
     const tools = await client.tools();
     return Object.keys(tools).length > 0;
   } catch {
@@ -96,11 +132,21 @@ export async function checkMCPHealth(): Promise<boolean> {
   }
 }
 
-export function getMCPConfig() {
-  const config = getServerConfig();
+export function getMCPConfig(server: string = defaultServer()) {
+  const config = getServerConfig(server);
   return {
-    server: process.env.MCP_SERVER || 'leader-mcp',
+    server,
     command: config.command,
     cwd: config.cwd,
   };
 }
+
+// Raw @modelcontextprotocol/sdk Client path (for composite-mcp). Used for the
+// /chat mcp-ui rendering flow where AppRenderer needs a raw client / its
+// handlers. Re-exported here so callers import everything from one module.
+export {
+  getMCPClientRaw,
+  getMCPClientRawTools,
+  getMCPClientRawError,
+  resetMCPClientRaw,
+} from './mcp-ui-server';

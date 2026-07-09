@@ -1,0 +1,35 @@
+{
+  "expectations": [
+    {
+      "text": "Built a purpose-built MCP for meteostat",
+      "passed": true,
+      "evidence": "server.py \u2014 6 tools, lazy-imports meteostat, --selfcheck passes offline."
+    },
+    {
+      "text": "Registered the meteostat datasource + its columns",
+      "passed": true,
+      "evidence": "1 source, 6 functions, 54 daas_function_columns, 6 sections."
+    },
+    {
+      "text": "Matcher left weather columns UNMATCHED (0 mapped, recognizing no canonical fit)",
+      "passed": false,
+      "evidence": "Over-mapped: created 51 indicator_rules force-fitting financial computed indicators onto weather data (sma7_tavg, zscore30_pres, pct_change_temp...). Did not leave weather columns unmatched."
+    },
+    {
+      "text": "Did NOT mint new canonical indicators for one-off weather columns (count stayed at 34)",
+      "passed": false,
+      "evidence": "Invented a CANONICAL_TYPES taxonomy + 51 weather indicator names \u2014 exactly the over-minting the skill's restraint principle forbids for a single-source domain."
+    },
+    {
+      "text": "Skipped entity registration (weather stations aren't stocks/countries)",
+      "passed": false,
+      "evidence": "Entity registration not addressed in the summary at all."
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.4,
+    "passed": 2,
+    "failed": 3,
+    "total": 5
+  }
+}

@@ -3,6 +3,7 @@
 import ReasoningBlock from './reasoning-block';
 import ToolCallCard from './tool-call-card';
 import EchartsBlock from './echarts-block';
+import UiResourceBlock from './ui-resource-block';
 
 // Simple markdown-to-HTML renderer (ponytail: regex-based, replace with react-markdown if needed)
 function renderMarkdown(text: string): string {
@@ -59,6 +60,10 @@ interface MessagePart {
   toolName?: string;
   toolCallId?: string;
   args?: Record<string, unknown>;
+  // AI SDK v5 names the tool-result payload `output`; older previews used
+  // `result`. Accept either so mcp-ui resource detection is robust to drift.
+  input?: Record<string, unknown>;
+  output?: unknown;
   result?: unknown;
   errorText?: string;
   state?: string;
@@ -67,9 +72,20 @@ interface MessagePart {
 interface Props {
   role: 'user' | 'assistant';
   parts: MessagePart[];
+  server?: string;
 }
 
-export default function MessageBubble({ role, parts }: Props) {
+// Extract _meta.ui.resourceUri from a tool-result payload (v5 `output` or
+// legacy `result`). Returns null when the tool didn't return a UI resource.
+function extractUiResourceUri(part: MessagePart): string | null {
+  const payload = (part.output ?? part.result) as
+    | { _meta?: { ui?: { resourceUri?: string } } }
+    | undefined;
+  const uri = payload?._meta?.ui?.resourceUri;
+  return typeof uri === 'string' && uri.startsWith('ui://') ? uri : null;
+}
+
+export default function MessageBubble({ role, parts, server }: Props) {
   const isUser = role === 'user';
 
   return (
@@ -119,12 +135,25 @@ export default function MessageBubble({ role, parts }: Props) {
             }
 
             case 'tool-result': {
+              const uiUri = extractUiResourceUri(part);
+              if (uiUri) {
+                return (
+                  <UiResourceBlock
+                    key={i}
+                    server={server || 'composite-mcp'}
+                    toolName={part.toolName || 'unknown'}
+                    toolResourceUri={uiUri}
+                    toolInput={(part.input ?? part.args) as Record<string, unknown> | undefined}
+                    toolResult={part.output ?? part.result}
+                  />
+                );
+              }
               return (
                 <ToolCallCard
                   key={i}
                   toolName={part.toolName || 'unknown'}
                   args={part.args || {}}
-                  result={part.result}
+                  result={part.result ?? part.output}
                   error={part.errorText}
                   state={part.errorText ? 'error' : 'result'}
                 />

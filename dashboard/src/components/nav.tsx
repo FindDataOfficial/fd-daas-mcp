@@ -7,9 +7,16 @@ const LINKS = [
   { href: '/chat', label: 'Chat' },
   { href: '/collections', label: 'Collections' },
   { href: '/collections/manage', label: 'Manage' },
+  { href: '/entities', label: 'Entities' },
   { href: '/databases', label: 'Databases' },
   { href: '/cron', label: 'Cron Tasks' },
+  { href: '/workflows', label: 'Workflows' },
+  { href: '/agents', label: 'Agents' },
+  { href: '/process/rules', label: 'Process' },
+  { href: '/process/indicators', label: 'Indicators' },
+  { href: '/process/indicators/collections', label: 'Indicator Collections' },
   { href: '/datasources', label: 'Datasources' },
+  { href: '/scores', label: 'Scores' },
   { href: '/settings', label: 'Settings' },
 ];
 

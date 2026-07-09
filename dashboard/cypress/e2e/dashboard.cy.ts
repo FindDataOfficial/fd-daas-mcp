@@ -4,11 +4,13 @@ describe('MCP Dashboard', () => {
     cy.url().should('include', '/databases');
   });
 
-  it('US1: shows database list with known databases', () => {
+  it('US1: shows database list with the real single DB', () => {
     cy.visit('/databases');
     cy.get('h1', { timeout: 30000 }).should('contain', 'Databases');
+    // daas.db is the single source of truth (construction/mcp.md). Do NOT
+    // assert ghost entries like leader_mcp.db / cron.db / dashboard.db —
+    // those render as "not found" headings but reference no real file.
     cy.contains('daas.db', { timeout: 30000 }).should('exist');
-    cy.contains('leader_mcp.db').should('exist');
   });
 
   it('US1: navigates to table browser and shows data', () => {
@@ -106,5 +108,30 @@ describe('MCP Dashboard', () => {
     cy.visit('/cron');
     cy.contains('nav a', 'Chat').click();
     cy.url().should('include', '/chat');
+  });
+
+  it('nav-walk: reaches every newly-covered destination', () => {
+    // One continuous walk across the destinations added since the first e2e
+    // pass — guards that the sidebar links to each and none 404/500.
+    cy.visit('/databases');
+    cy.contains('nav a', 'Workflows').click();
+    cy.url().should('include', '/workflows');
+    cy.get('h1', { timeout: 30000 }).should('contain', 'Workflows');
+
+    cy.contains('nav a', 'Agents').click();
+    cy.url().should('include', '/agents');
+    cy.get('h1', { timeout: 30000 }).should('contain', 'Specialist Agents');
+
+    cy.contains('nav a', 'Process').click();
+    cy.url().should('include', '/process/rules');
+    cy.get('h1', { timeout: 30000 }).should('contain', 'Process Rules');
+
+    cy.contains('nav a', 'Scores').click();
+    cy.url().should('include', '/scores');
+    cy.get('h1', { timeout: 30000 }).should('contain', 'Scores');
+
+    cy.contains('nav a', 'Collections').click();
+    cy.url().should('include', '/collections');
+    cy.contains('Datasource Collections', { timeout: 30000 }).should('exist');
   });
 });

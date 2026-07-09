@@ -78,6 +78,14 @@ DEFAULT_SOURCES: list[SourceConfig] = [
         pypi_package="akshare",  # Uses akshare for NBS data
         import_module="akshare",
     ),
+    SourceConfig(
+        name="wbdata",
+        label="World Bank (world_bank_data)",
+        description="World Bank Open Data via the world_bank_data package — GDP, population, trade, education, health, environment (yearly)",
+        url="https://github.com/mwouts/world_bank_data",
+        pypi_package="world_bank_data",
+        import_module="world_bank_data",
+    ),
 ]
 
 
@@ -119,12 +127,14 @@ def get_adapter(source_name: str):
     from cli_anything.daas.sources.worldbank_source import WorldBankAdapter
     from cli_anything.daas.sources.ckan_source import CKANAdapter
     from cli_anything.daas.sources.cnstats_source import CNStatsAdapter
+    from cli_anything.daas.sources.wbdata_source import WbDataAdapter
 
     adapters = {
         "akshare": AKShareAdapter,
         "worldbank": WorldBankAdapter,
         "ckan": CKANAdapter,
         "cnstats": CNStatsAdapter,
+        "wbdata": WbDataAdapter,
     }
     cls = adapters.get(source_name)
     if cls is None:
