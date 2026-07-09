@@ -9,6 +9,8 @@ import pytest
 
 _TMP = tempfile.mkdtemp()
 os.environ.setdefault("DAAS_DATABASE_URL", f"sqlite:///{_TMP}/test_cnreport.db")
+# Keep the report cache off the repo during tests.
+os.environ.setdefault("CNREPORT_CACHE_DIR", os.path.join(_TMP, "report_cache"))
 os.environ.pop("LLM_API_KEY", None)
 os.environ.pop("OPENAI_API_KEY", None)
 
@@ -260,7 +262,7 @@ def test_get_section_happy_path(monkeypatch):
         "第三节 管理层讨论与分析\n经营情况良好。营业收入增长。\n"
         "第四节 公司治理\n治理结构完善。\n"
     )
-    monkeypatch.setattr(T, "fetch_source", lambda *_a, **_kw: fake_text)
+    monkeypatch.setattr(T, "fetch_source_with_bytes", lambda *_a, **_kw: (fake_text, b"%PDF fake"))
 
     from server import get_section
 
@@ -274,8 +276,8 @@ def test_get_section_happy_path(monkeypatch):
 def test_get_section_unknown_section_returns_error(monkeypatch):
     _patch_cninfo(monkeypatch)
     monkeypatch.setattr(
-        T, "fetch_source",
-        lambda *_a, **_kw: "第三节 管理层讨论与分析\n营收增长。\n",
+        T, "fetch_source_with_bytes",
+        lambda *_a, **_kw: ("第三节 管理层讨论与分析\n营收增长。\n", b"%PDF fake"),
     )
 
     from server import get_section
@@ -449,9 +451,9 @@ def test_get_special_report_no_section_no_pdf_download(monkeypatch):
 
     def fake_fetch(*a, **k):
         fetch_calls["n"] += 1
-        return ""
+        return "", b""
 
-    monkeypatch.setattr(T, "fetch_source", fake_fetch)
+    monkeypatch.setattr(T, "fetch_source_with_bytes", fake_fetch)
     from server import get_special_report
 
     result = get_special_report("600519", category="首发")
@@ -466,10 +468,11 @@ def test_get_special_report_with_section(monkeypatch):
     _patch_cninfo(monkeypatch, hisann=_load_fixture("cninfo_hisannouncement_special.json"))
     monkeypatch.setattr(
         T,
-        "fetch_source",
+        "fetch_source_with_bytes",
         lambda *_a, **_kw: (
             "第一节 募集资金运用\n募资10亿元用于扩产。\n"
-            "第二节 风险因素\n市场风险。\n"
+            "第二节 风险因素\n市场风险。\n",
+            b"%PDF fake",
         ),
     )
     from server import get_special_report
@@ -483,7 +486,7 @@ def test_get_special_report_with_section(monkeypatch):
 
 def test_get_special_report_by_raw_code(monkeypatch):
     _patch_cninfo(monkeypatch, hisann=_load_fixture("cninfo_hisannouncement_special.json"))
-    monkeypatch.setattr(T, "fetch_source", lambda *_a, **_kw: "第一节 募集资金运用\n内容。\n")
+    monkeypatch.setattr(T, "fetch_source_with_bytes", lambda *_a, **_kw: ("第一节 募集资金运用\n内容。\n", b"%PDF fake"))
     from server import get_special_report
 
     result = get_special_report("600519", category="category_sf_szsh", section="募集资金运用")
@@ -517,7 +520,7 @@ def test_get_special_report_unknown_company_error(monkeypatch):
 
 def test_get_special_report_section_not_found(monkeypatch):
     _patch_cninfo(monkeypatch, hisann=_load_fixture("cninfo_hisannouncement_special.json"))
-    monkeypatch.setattr(T, "fetch_source", lambda *_a, **_kw: "第一节 募集资金运用\n内容。\n")
+    monkeypatch.setattr(T, "fetch_source_with_bytes", lambda *_a, **_kw: ("第一节 募集资金运用\n内容。\n", b"%PDF fake"))
     from server import get_special_report
 
     result = get_special_report("600519", category="首发", section="No Such Section")

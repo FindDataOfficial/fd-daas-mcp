@@ -32,9 +32,13 @@ from dotenv import load_dotenv
 load_dotenv(_MCP_ROOT / ".env")
 load_dotenv(_HERE / ".env", override=True)
 
-# Force the direct-fallback path: clear every LLM-related env var so
-# build_llm(None) returns the soft "no LLM configured" reason (no network call).
-for _k in ("LEADER_MODELS", "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "OPENAI_API_KEY"):
+# Force the direct-fallback path: clear every LLM-related env var AND every
+# LEADER_MODEL_* tier var so build_llm("fast") (the null-step default) returns
+# the soft "no LLM configured" reason (no network call, no dangling-tier hard error).
+for _k in (
+    "LEADER_MODELS", "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "OPENAI_API_KEY",
+    "LEADER_MODEL_HIGH", "LEADER_MODEL_BALANCE", "LEADER_MODEL_FAST",
+):
     os.environ.pop(_k, None)
 
 import gateway_database as gdb
@@ -42,14 +46,18 @@ import specialist_agents as sa
 import workflow_database as wdb
 from workflow_tools import (
     add_workflow_step,
+    build_workflow_from_goal,
     create_specialist_agent,
     create_workflow,
+    delete_specialist_agent,
     get_workflow,
     get_workflow_run,
     list_agent_models,
+    list_model_tiers,
     list_specialist_agents,
     run_workflow,
     run_workflow_step,
+    update_specialist_agent,
 )
 
 sa.reset_models_cache()
@@ -107,6 +115,21 @@ def main() -> int:
     models = list_agent_models()
     if not _check("list_agent_models returns a default", "default" in {m["name"] for m in models["models"]}):
         failures.append("list_agent_models")
+
+    # 0b. list_model_tiers returns all-null tiers in the no-LLM env (tier env vars popped)
+    tiers = list_model_tiers()
+    tiers_ok = (
+        set(tiers["tiers"].keys()) == {"high", "balance", "fast"}
+        and all(v is None for v in tiers["tiers"].values())
+    )
+    if not _check("list_model_tiers returns {high,balance,fast} all null (no-LLM env)", tiers_ok, str(tiers["tiers"])):
+        failures.append("list_model_tiers")
+    # list_agent_models also carries the tiers mapping
+    if not _check(
+        "list_agent_models carries tiers mapping",
+        "tiers" in models and set(models["tiers"].keys()) == {"high", "balance", "fast"},
+    ):
+        failures.append("list_agent_models.tiers")
 
     # seed two upstreams so create_specialist_agent's upstream validation passes
     gdb.get_gateway_db().upsert_upstream(name="yfinance", command="echo", args=[])
@@ -187,6 +210,75 @@ def main() -> int:
         failures.append("run_workflow_step-unknown-wf")
     if not _check("run_workflow_step unknown step errors", "not found" in run_workflow_step(name="aapl-dd", step_sort_order=99).get("error", "")):
         failures.append("run_workflow_step-unknown-step")
+
+    # 5b. update_specialist_agent — editable fields, model=_UNSET vs None, upstream re-validate, toggle, unknown.
+    #     (edgar-agent currently has model=None, enabled=True from creation.)
+    u1 = update_specialist_agent(name="edgar-agent", role="New role", goal="New goal", model="high")
+    u1_ok = (
+        u1.get("role") == "New role"
+        and u1.get("goal") == "New goal"
+        and u1.get("model") == "high"
+        and u1.get("upstream") == "edgartools"       # unchanged
+        and u1.get("enabled") is True                 # unchanged
+        and u1.get("updated_at")                      # advanced
+    )
+    if not _check("update sets provided fields, leaves others", u1_ok, str({k: u1.get(k) for k in ("role", "goal", "model", "upstream", "enabled")})):
+        failures.append("update-fields")
+    # model omitted → unchanged (still "high")
+    u2 = update_specialist_agent(name="edgar-agent", role="Another role")
+    if not _check("model omitted leaves override unchanged", u2.get("model") == "high", str(u2.get("model"))):
+        failures.append("update-model-omitted")
+    # model=None explicitly → clears the override
+    u3 = update_specialist_agent(name="edgar-agent", model=None)
+    if not _check("model=None clears override", u3.get("model") is None, str(u3.get("model"))):
+        failures.append("update-model-clear")
+    # update re-validates a changed upstream
+    bad_up = update_specialist_agent(name="edgar-agent", upstream="nope")
+    if not _check("update rejects unknown upstream", bad_up.get("error", "").startswith("upstream 'nope'"), str(bad_up.get("error"))):
+        failures.append("update-bad-upstream")
+    # update unknown agent
+    bad_u = update_specialist_agent(name="ghost-agent", role="x")
+    if not _check("update unknown agent errors", "not found" in bad_u.get("error", "")):
+        failures.append("update-unknown")
+    # toggle enabled=False, then re-enable (so downstream build_workflow_from_goal still sees it)
+    u4 = update_specialist_agent(name="edgar-agent", enabled=False)
+    if not _check("toggle enabled=False via update", u4.get("enabled") is False, str(u4.get("enabled"))):
+        failures.append("update-toggle-off")
+    update_specialist_agent(name="edgar-agent", enabled=True)
+
+    # 5c. delete_specialist_agent — unreferenced succeeds, refused-when-referenced, unknown.
+    create_specialist_agent(name="throwaway-agent", upstream="yfinance", role="t", goal="t")
+    d1 = delete_specialist_agent(name="throwaway-agent")
+    if not _check("delete unreferenced agent succeeds", d1.get("deleted") == "throwaway-agent", str(d1)):
+        failures.append("delete-unreferenced")
+    la2 = list_specialist_agents()
+    if not _check("deleted agent no longer listed", "throwaway-agent" not in {a["name"] for a in la2["agents"]}):
+        failures.append("delete-confirmed-gone")
+    # yfinance-agent is referenced by aapl-dd step 1 → delete must refuse and name the workflow
+    d2 = delete_specialist_agent(name="yfinance-agent")
+    if not _check("delete refused when referenced by a step", "referenced by workflow" in d2.get("error", "") and "aapl-dd" in d2.get("error", ""), str(d2.get("error"))):
+        failures.append("delete-refused-referenced")
+    # delete unknown agent
+    d3 = delete_specialist_agent(name="ghost-agent")
+    if not _check("delete unknown agent errors", "not found" in d3.get("error", "")):
+        failures.append("delete-unknown")
+
+    # 6. build_workflow_from_goal direct fallback (no LLM) → one-step workflow + warning.
+    #    Goal "yfinance data" keyword-matches the yfinance-agent (upstream/role/goal)
+    #    and not the edgar-agent, so the fallback picks yfinance-agent deterministically.
+    b = build_workflow_from_goal(goal="yfinance data", name="builder-test")
+    b_ok = (
+        b.get("name") == "builder-test"
+        and len(b.get("steps", [])) == 1
+        and b["steps"][0]["agent"] == "yfinance-agent"
+        and any("fallback" in w for w in b.get("warnings", []))
+    )
+    if not _check(
+        "build_workflow_from_goal fallback emits one-step workflow",
+        b_ok,
+        f"name={b.get('name')} steps={len(b.get('steps', []))} agent={b.get('steps', [{}])[0].get('agent') if b.get('steps') else None} warnings={b.get('warnings')}",
+    ):
+        failures.append("build_workflow_from_goal-fallback")
 
     # cleanup
     try:

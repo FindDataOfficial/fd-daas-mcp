@@ -1,8 +1,12 @@
 """Seed the leader_upstreams registry from .mcp.json.
 
-Reads the 10 data-fetch MCP entries from the repo-root `.mcp.json` and
-upserts them into the `leader_upstreams` table, so leader-mcp can launch
-them on demand after they are removed from `.mcp.json`.
+Reads every non-`leader-mcp` entry from the repo-root `.mcp.json` and
+upserts it into the `leader_upstreams` table, so leader-mcp can launch
+them on demand as the single client-facing entry point.
+
+The 10 data-fetch MCPs keep their short names (via `DATA_FETCH_MCPS`)
+for back-compat with `ask_data_crew` / the crewai-data-workflow; all
+other non-leader MCPs use their full `.mcp.json` key as `name`.
 
 Idempotent: re-running updates existing rows by name, never duplicates.
 
@@ -10,14 +14,6 @@ Usage (from anywhere, via uv):
     uv run --directory mcp/leader-mcp python seed_upstreams.py --dry-run
     uv run --directory mcp/leader-mcp python seed_upstreams.py
     uv run --directory mcp/leader-mcp python seed_upstreams.py --unseed
-
-The 10 data-fetch MCPs (`.mcp.json` key → leader_upstreams.name, with the
-`-mcp` suffix stripped):
-    akshare-mcp → akshare      yfinance-mcp → yfinance
-    edgartools-mcp → edgar tools   edinet-mcp → edinet
-    dartlab-mcp → dartlab      cnreport-mcp → cnreport
-    hkreport-mcp → hkreport    ckan-mcp → ckan
-    cnstats-mcp → cnstats      worldbank-mcp → worldbank
 """
 from __future__ import annotations
 
@@ -40,7 +36,9 @@ load_dotenv(_HERE / ".env", override=True)
 
 from gateway_database import get_gateway_db, reset_gateway_db  # noqa: E402
 
-# `.mcp.json` key → leader_upstreams.name
+# Short-name map for the 10 data-fetch MCPs (`.mcp.json` key → leader_upstreams.name).
+# Used so `ask_data_crew` / the crewai-data-workflow keep resolving by short name.
+# All other non-leader MCPs use their full `.mcp.json` key as `name`.
 DATA_FETCH_MCPS: dict[str, str] = {
     "akshare-mcp": "akshare",
     "yfinance-mcp": "yfinance",
@@ -53,6 +51,9 @@ DATA_FETCH_MCPS: dict[str, str] = {
     "cnstats-mcp": "cnstats",
     "worldbank-mcp": "worldbank",
 }
+
+# The gateway itself — never seeded as an upstream (would self-recurse).
+SELF_NAME = "leader-mcp"
 
 _REPO_ROOT = _MCP_ROOT.parent
 _MCP_JSON = _REPO_ROOT / ".mcp.json"
@@ -75,7 +76,7 @@ def _entry_to_upstream(key: str, short_name: str, entry: dict) -> dict:
         "env": entry.get("env") or None,
         "cwd": entry.get("cwd"),
         "enabled": True,
-        "description": f"Data-fetch MCP {key} (migrated from .mcp.json)",
+        "description": f"MCP upstream {key} (seeded from .mcp.json)",
     }
 
 
@@ -97,21 +98,16 @@ def seed(dry_run: bool = False) -> int:
     data = _load_mcp_json()
     servers = data.get("mcpServers", {})
     planned: list[dict] = []
-    missing: list[str] = []
-    for key, short_name in DATA_FETCH_MCPS.items():
-        entry = servers.get(key)
-        if entry is None:
-            missing.append(key)
-            continue
+    for key, entry in servers.items():
+        if key == SELF_NAME:
+            continue  # the gateway itself — never seed as an upstream
+        # data-fetch MCPs keep their short names; others use the full .mcp.json key
+        short_name = DATA_FETCH_MCPS.get(key, key)
         planned.append(_entry_to_upstream(key, short_name, entry))
-
-    if missing:
-        print(f"Note: {len(missing)} data-fetch MCP(s) not present in .mcp.json "
-              f"(already removed?): {', '.join(missing)}")
 
     print(f"Planned upserts: {len(planned)} upstream(s)")
     for p in planned:
-        print(f"  - {p['name']:<12} {p['command']} {' '.join(p['args'])}")
+        print(f"  - {p['name']:<22} {p['command']} {' '.join(p['args'])}")
 
     if dry_run:
         print("\n[dry-run] No rows written.")
@@ -127,22 +123,25 @@ def seed(dry_run: bool = False) -> int:
 
 
 def unseed() -> int:
+    """Delete every seeded upstream and print the .mcp.json snippet for rollback.
+
+    Reads rows from the DB (not .mcp.json) so it still works after .mcp.json has
+    been reduced to the single leader-mcp entry. The snippet reconstructs each
+    row's .mcp.json key: data-fetch short names invert via DATA_FETCH_MCPS, all
+    other names are their own key.
+    """
     db = get_gateway_db()
-    rows = []
-    for short_name in DATA_FETCH_MCPS.values():
-        row = db.get_upstream(short_name)
-        if row is not None:
-            rows.append(row)
+    rows = db.list_upstreams(include_disabled=True)
     if not rows:
-        print("No leader_upstreams rows found for the 10 data-fetch MCPs. Nothing to remove.")
+        print("No leader_upstreams rows found. Nothing to remove.")
         return 0
 
     # Print the .mcp.json snippet for rollback BEFORE deleting.
     snippet: dict = {}
-    # invert short_name → key
     short_to_key = {v: k for k, v in DATA_FETCH_MCPS.items()}
     for row in rows:
-        key = short_to_key.get(row["name"], row["name"] + "-mcp")
+        # data-fetch short name → original .mcp.json key; full-key name → itself
+        key = short_to_key.get(row["name"], row["name"])
         snippet[key] = _upstream_to_mcpjson_entry(row)
     print("# ── .mcp.json mcpServers snippet for rollback ──")
     print(json.dumps(snippet, indent=2))

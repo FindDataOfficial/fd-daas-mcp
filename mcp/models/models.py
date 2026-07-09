@@ -16,7 +16,7 @@ Domains:
                  DatasourceCollectionItem, PipelineCollection, PipelineCollectionItem
   scrapling:   ScrawConfig (scraping configs)
   dashboard:   Datasource, DatasourceColumn (dashboard metadata)
-  process-mcp: ProcessRule, ProcessResult (LLM extraction rules + results)
+  process:    ProcessRule, ProcessResult, IndicatorRule (LLM extraction + indicators; owned by daas-mcp, relocated from process-mcp)
   entity:      Entity, EntityDatasourceLink (stocks + countries, linked to daas sources)
 """
 
@@ -26,6 +26,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     JSON,
@@ -137,7 +138,7 @@ class LeaderUpstream(Base):
 
     transport is 'stdio' (command + args_json + cwd + env_json). The
     fastmcp.Client is built per call from these fields (see gateway_database.
-    build_client), mirroring combine-mcp's Upstream pattern — but scoped
+    build_client), mirroring composite-mcp's Upstream pattern — but scoped
     globally (one row per data-fetch MCP), not per-composite.
     """
     __tablename__ = "leader_upstreams"
@@ -246,6 +247,7 @@ class DaasSource(Base):
     category_id = Column(
         Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    score = Column(Float, nullable=True, default=None)  # default priority/quality weight
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -266,6 +268,7 @@ class DaasSource(Base):
             "enabled": self.enabled,
             "config": self.config or {},
             "category_id": self.category_id,
+            "score": self.score,
             "function_count": len(self.functions) if self.functions else 0,
         }
 
@@ -284,6 +287,7 @@ class DaasFunction(Base):
     category = Column(String(255), nullable=False, default="未分类")
     parameters = Column(JSON, nullable=True)
     output_type = Column(String(64), default="DataFrame")
+    frequency = Column(String(64), nullable=True)  # data refresh cadence: daily/weekly/monthly/quarterly/yearly/realtime/irregular
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -304,6 +308,7 @@ class DaasFunction(Base):
             "category": self.category,
             "parameters": self.parameters or [],
             "output_type": self.output_type,
+            "frequency": self.frequency,
             "columns": [c.to_dict() for c in self.columns] if self.columns else [],
         }
 
@@ -512,6 +517,7 @@ class DatasourceCollectionItem(Base):
         Integer, ForeignKey("datasource_sections.id", ondelete="CASCADE"), nullable=True, index=True
     )
     sort_order = Column(Integer, nullable=False, default=0)
+    score = Column(Float, nullable=True, default=None)  # per-collection override of source.score
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     collection = relationship("DatasourceCollection", back_populates="items")
@@ -523,6 +529,7 @@ class DatasourceCollectionItem(Base):
             "source_id": self.source_id,
             "section_id": self.section_id,
             "sort_order": self.sort_order,
+            "score": self.score,
         }
 
 
@@ -724,8 +731,60 @@ class DatasourceColumn(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class Dashboard(Base):
+    """Metadata for a standalone HTML dashboard built by the `fd-daas-dashboard-creator`
+    skill (one self-contained `dashboard/my-charts-dashboard/<slug>.html` file). This
+    table is the single source of truth for the dashboard registry — `dashboard-mcp`
+    CRUD tools read/write it, and `index.html` + `daas.md` are regenerated from it.
+
+    `slug` is the kebab-case filename stem (matches `^[A-Za-z0-9_-]+$`); `name` is the
+    human-readable title; `intro` is a one-paragraph description; `source_tables` lists
+    the `scraw_*` / `observations` tables backing the charts; `entity_coverage` /
+    `time_range` describe the data scope; `chart_config` is a structural description
+    (chart type + source columns + entity/date binding) the skill expands into ECharts
+    options at build time — not a full ECharts option blob.
+    """
+    __tablename__ = "dashboards"
+    __table_args__ = (UniqueConstraint("slug", name="uq_dashboard_slug"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    slug = Column(String(128), nullable=False, index=True)
+    name = Column(String(256), nullable=False)
+    intro = Column(Text, nullable=True)
+    source_tables = Column(JSON, nullable=True)  # ["scraw_byd_daily", "observations", ...]
+    entity_coverage = Column(JSON, nullable=True)  # ["600519", "000858"] or null for unscoped
+    time_range = Column(JSON, nullable=True)  # {"start": "2024-01-01", "end": "2024-12-31"} or null
+    refresh_cadence = Column(String(128), nullable=True)  # "static snapshot" | "daily 04:30 (Asia/Shanghai)"
+    chart_config = Column(JSON, nullable=True)  # [{"type":"line","source_table":...,"x":...,"y":[...]}]
+    file_path = Column(String(512), nullable=False)  # "dashboard/my-charts-dashboard/<slug>.html"
+    file_url = Column(String(512), nullable=False)  # "file:///abs/path/to/<slug>.html"
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "slug": self.slug,
+            "name": self.name,
+            "intro": self.intro,
+            "source_tables": self.source_tables or [],
+            "entity_coverage": self.entity_coverage,
+            "time_range": self.time_range,
+            "refresh_cadence": self.refresh_cadence,
+            "chart_config": self.chart_config or [],
+            "file_path": self.file_path,
+            "file_url": self.file_url,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 # ═══════════════════════════════════════════════════════════════
-# combine-mcp domain — composite MCP curation + orchestration
+# composite-mcp domain — composite MCP curation + orchestration
 # ═══════════════════════════════════════════════════════════════
 
 
@@ -928,7 +987,8 @@ class EsIndexMeta(Base):
 
 
 # ═══════════════════════════════════════════════════════════════
-# process-mcp domain — LLM extraction rules + results
+# process domain — LLM extraction rules + results + math indicators
+# (owned by daas-mcp; relocated from the former process-mcp)
 # ═══════════════════════════════════════════════════════════════
 
 
@@ -1029,6 +1089,7 @@ class IndicatorRule(Base):
     op = Column(String(64), nullable=False)
     params_json = Column(JSON, nullable=True)
     indicator_name = Column(String(255), nullable=False)
+    score = Column(Float, nullable=True, default=None)  # default priority/quality weight; NULL = inherit the datasource's sources.score
     enabled = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
@@ -1049,9 +1110,223 @@ class IndicatorRule(Base):
             "op": self.op,
             "params": self.params_json or {},
             "indicator_name": self.indicator_name,
+            "score": self.score,
             "enabled": self.enabled,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class IndicatorCollection(Base):
+    """A named, ordered collection of indicators — a reusable bundle (e.g.
+    "momentum", "trend") where each member can carry a per-collection score
+    override. Distinct from `DatasourceCollection` (which groups datasources)
+    and `EntityCollection` (which groups entities).
+
+    Effective score for a member = `COALESCE(item.score, indicator_rules.score,
+    sources.score)` — a 3-level chain (item override → indicator default →
+    datasource default). Deleting an indicator rule cascades to its membership
+    rows (real FK); the audit log row survives (denormalized indicator_name).
+    """
+    __tablename__ = "indicator_collections"
+    __table_args__ = (UniqueConstraint("name", name="uq_indicator_collection_name"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False, index=True)
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    items = relationship(
+        "IndicatorCollectionItem",
+        back_populates="collection",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "item_count": len(self.items) if self.items else 0,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class IndicatorCollectionItem(Base):
+    """One entry in an indicator collection: a single indicator rule with a
+    per-collection `score` override (NULL = inherit the indicator's default
+    `indicator_rules.score`, which itself inherits the datasource default
+    when NULL). UNIQUE(collection_id, indicator_id) makes re-adding a no-op."""
+    __tablename__ = "indicator_collection_items"
+    __table_args__ = (
+        UniqueConstraint("collection_id", "indicator_id", name="uq_indicator_collection_item"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    collection_id = Column(
+        Integer, ForeignKey("indicator_collections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    indicator_id = Column(
+        Integer, ForeignKey("indicator_rules.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sort_order = Column(Integer, nullable=False, default=0)
+    score = Column(Float, nullable=True, default=None)  # per-collection override of indicator_rules.score
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    collection = relationship("IndicatorCollection", back_populates="items")
+    indicator = relationship("IndicatorRule", lazy="selectin")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "collection_id": self.collection_id,
+            "indicator_id": self.indicator_id,
+            "sort_order": self.sort_order,
+            "score": self.score,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class IndicatorCollectionChange(Base):
+    """Append-only audit log of every indicator-collection membership
+    transition. `action` ∈ {add_in, remove_out}; `source` ∈ {manual, cron}.
+    `indicator_name` is denormalized so the row survives indicator-rule
+    deletion (the membership row cascades away, but the audit row does not —
+    it is FK-linked only to the collection)."""
+    __tablename__ = "indicator_collection_changes"
+    __table_args__ = (
+        UniqueConstraint(
+            "collection_id", "indicator_name", "changed_at", name="uq_indicator_collection_change"
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    collection_id = Column(
+        Integer, ForeignKey("indicator_collections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    indicator_name = Column(String(128), nullable=False)  # denormalized; survives rule deletion
+    action = Column(String(16), nullable=False)  # add_in | remove_out
+    source = Column(String(16), nullable=False, default="manual")  # manual | cron
+    reason = Column(String, nullable=True)
+    changed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "collection_id": self.collection_id,
+            "indicator_name": self.indicator_name,
+            "action": self.action,
+            "source": self.source,
+            "reason": self.reason,
+            "changed_at": self.changed_at.isoformat() if self.changed_at else None,
+        }
+
+
+# ═══════════════════════════════════════════════════════════════
+# alerts-mcp domain — trigger rules over DB series + dispatch events
+# (reads observations / scraw_*; writes only its own tables)
+# ═══════════════════════════════════════════════════════════════
+
+
+class AlertRule(Base):
+    """A trigger rule: watch a series in daas.db, evaluate a condition, fire
+    notifications when it matches.
+
+    `source_table` (default `observations`) + `series_filter_json` (key→value
+    WHERE pairs, e.g. {"source":"akshare","function_name":"stock_zh_a_hist",
+    "indicator":"close"}) + `date_column` + `value_column` locate the series.
+    Identifiers are validated against `^[A-Za-z_][A-Za-z0-9_]*$` by alerts-mcp
+    before interpolation; filter values are bind params.
+
+    `condition` is a safe DSL string (ast-walk, no eval) over `latest`/`prev`
+    + whitelisted funcs (crosses_above, pct_change, …). `fire_mode` is
+    `every_match` (subject to `cooldown_seconds`) or `on_change` (false→true).
+    `channels_json` lists channel names, optionally with per-rule overrides
+    (e.g. {"telegram": {"chat_id": "…"}}).
+
+    `last_state` / `last_fired_at` / `last_value` persist between cron ticks
+    so `on_change` + cooldown survive restarts.
+    """
+
+    __tablename__ = "alert_rules"
+    __table_args__ = (UniqueConstraint("name", name="uq_alert_rule_name"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False, index=True)
+    enabled = Column(Boolean, default=True, nullable=False)
+    source_table = Column(String(128), nullable=False, default="observations")
+    series_filter_json = Column(JSON, nullable=True)
+    date_column = Column(String(128), nullable=False, default="date")
+    value_column = Column(String(128), nullable=False, default="value")
+    condition = Column(Text, nullable=False)
+    fire_mode = Column(String(16), nullable=False, default="every_match")  # every_match | on_change
+    cooldown_seconds = Column(Integer, nullable=False, default=300)
+    channels_json = Column(JSON, nullable=False)  # ["telegram","slack"] or {"telegram":{"chat_id":"…"}}
+    message_template = Column(Text, nullable=False, default="$rule_name: $indicator = $latest")
+    last_state = Column(Boolean, nullable=True)
+    last_fired_at = Column(DateTime, nullable=True)
+    last_value = Column(String(64), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "enabled": bool(self.enabled),
+            "source_table": self.source_table,
+            "series_filter": self.series_filter_json or {},
+            "date_column": self.date_column,
+            "value_column": self.value_column,
+            "condition": self.condition,
+            "fire_mode": self.fire_mode,
+            "cooldown_seconds": self.cooldown_seconds,
+            "channels": self.channels_json or [],
+            "message_template": self.message_template,
+            "last_state": self.last_state,
+            "last_fired_at": self.last_fired_at.isoformat() if self.last_fired_at else None,
+            "last_value": self.last_value,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class AlertEvent(Base):
+    """One dispatch of an AlertRule — inserted when a rule fires, never when it
+    evaluates false. `channels_results_json` records per-channel
+    `{ok, error?}`. Rule state (`last_fired_at`/`last_state`/`last_value`) is
+    updated in the same transaction as this insert."""
+
+    __tablename__ = "alert_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    rule_id = Column(
+        Integer, ForeignKey("alert_rules.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    fired_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    value_json = Column(JSON, nullable=True)  # the series values that triggered
+    message_rendered = Column(Text, nullable=True)
+    channels_results_json = Column(JSON, nullable=True)  # [{channel, ok, error?}]
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "rule_id": self.rule_id,
+            "fired_at": self.fired_at.isoformat() if self.fired_at else None,
+            "value": self.value_json or {},
+            "message_rendered": self.message_rendered,
+            "channels_results": self.channels_results_json or [],
         }
 
 
@@ -1154,6 +1429,133 @@ class EntityDatasourceLink(Base):
             "metadata": self.metadata_ or {},
             "last_fetched_at": self.last_fetched_at.isoformat() if self.last_fetched_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class EntityCollection(Base):
+    """A named collection of entities (stocks + countries) — a watchlist /
+    portfolio. Distinct from `DatasourceCollection` (which groups datasources).
+
+    `rule_json` is an optional membership rule: a JSON object with keys
+    `entity_type`, `exchange`, `country_code`, `codes` (list), `name_regex`.
+    When set, `sync_entity_collection` re-derives the intended member set by
+    applying the rule to `entities` and records add_in / remove_out diffs in
+    `entity_collection_changes`. When NULL the collection is manual.
+
+    `rule_script` is the script analogue: a path (repo-root relative) to a
+    Python file defining `members(ctx) -> list`. When set, `sync_entity_collection`
+    executes the script (which can read any daas.db table via `ctx.query(sql)`)
+    and diffs its result against the current members. `rule_json` and
+    `rule_script` are mutually exclusive — a collection has at most one rule.
+    Storing the path in the DB (rather than the source) lets workflows and
+    cron (`--sync-entity-collection <name>`) re-run the rule without re-passing it.
+    """
+    __tablename__ = "entity_collections"
+    __table_args__ = (UniqueConstraint("name", name="uq_entity_collection_name"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False, index=True)
+    description = Column(String, nullable=True)
+    rule_json = Column(JSON, nullable=True)
+    rule_script = Column(String, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    items = relationship(
+        "EntityCollectionItem",
+        back_populates="collection",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "rule": self.rule_json,
+            "rule_script": self.rule_script,
+            "item_count": len(self.items) if self.items else 0,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class EntityCollectionItem(Base):
+    """Current membership: one row per (collection, entity). Removing a member
+    deletes this row and appends an `entity_collection_changes` remove_out
+    event. UNIQUE(collection_id, entity_id) makes re-adding a no-op."""
+    __tablename__ = "entity_collection_items"
+    __table_args__ = (
+        UniqueConstraint("collection_id", "entity_id", name="uq_entity_collection_item"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    collection_id = Column(
+        Integer, ForeignKey("entity_collections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    entity_id = Column(
+        Integer, ForeignKey("entities.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sort_order = Column(Integer, nullable=False, default=0)
+    added_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    added_reason = Column(String, nullable=True)
+
+    collection = relationship("EntityCollection", back_populates="items")
+    entity = relationship("Entity", lazy="selectin")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "collection_id": self.collection_id,
+            "entity_id": self.entity_id,
+            "sort_order": self.sort_order,
+            "added_at": self.added_at.isoformat() if self.added_at else None,
+            "added_reason": self.added_reason,
+        }
+
+
+class EntityCollectionChange(Base):
+    """Append-only audit log of every membership transition.
+
+    `action` ∈ {add_in, remove_out}; `source` ∈ {manual, cron} (manual = a
+    single add/remove call, cron = a rule-driven sync tick). Re-adding an
+    entity after removal produces add_in → remove_out → add_in — the correct
+    audit semantic. Cascade on entity_id means deleting an entity also drops
+    its history rows; cascade on collection_id drops a deleted collection's
+    whole history."""
+    __tablename__ = "entity_collection_changes"
+    __table_args__ = (
+        UniqueConstraint(
+            "collection_id", "entity_id", "changed_at", name="uq_entity_collection_change"
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    collection_id = Column(
+        Integer, ForeignKey("entity_collections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    entity_id = Column(
+        Integer, ForeignKey("entities.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    action = Column(String(16), nullable=False)  # add_in | remove_out
+    source = Column(String(16), nullable=False, default="manual")  # manual | cron
+    reason = Column(String, nullable=True)
+    changed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "collection_id": self.collection_id,
+            "entity_id": self.entity_id,
+            "action": self.action,
+            "source": self.source,
+            "reason": self.reason,
+            "changed_at": self.changed_at.isoformat() if self.changed_at else None,
         }
 
 

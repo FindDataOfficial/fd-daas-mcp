@@ -4,8 +4,9 @@ Mirrors gateway_database.py: SQLAlchemy engine + session factory over the
 shared mcp/daas.db, with `PRAGMA foreign_keys=ON` per connection so the
 workflow→step and run→result `ON DELETE CASCADE`s fire. CRUD for:
 
-  - `specialist_agents` (create/list/get; `upstream` validated against
-    `leader_upstreams`, `upstream_missing` surfaced on list);
+  - `specialist_agents` (create/list/get/update/delete; `upstream` validated
+    against `leader_upstreams`, `upstream_missing` surfaced on list; delete
+    refused when a `workflow_steps.agent` row still references the agent);
   - `workflows` + `workflow_steps` (create/get/list/add-step; `agent` validated
     against `specialist_agents`; auto `sort_order`);
   - `workflow_runs` + `workflow_step_results` (start/finish/upsert/get; unique
@@ -63,6 +64,16 @@ def _validate_ident(name: str, field: str) -> None:
             f"invalid {field} '{name}': must match {_IDENT_RE.pattern} "
             f"(letters, digits, underscore, hyphen; start with a letter)"
         )
+
+
+# Sentinel for "argument omitted" vs. "argument provided as None" on
+# `update_specialist_agent(model=...)`. `None` is a legitimate value meaning
+# "clear the override → shared LLM_* fallback", so a distinct sentinel is the
+# only way to tell "leave unchanged" from "clear". FastMCP excludes the
+# non-JSON-serializable default from the tool schema (Pydantic warning), which
+# is exactly the desired behavior — the field becomes optional with type
+# `string or null`.
+_UNSET = object()
 
 
 def _resolve_database_url(database_url: Optional[str]) -> str:
@@ -263,6 +274,94 @@ class WorkflowDatabase:
             upstreams = self._upstream_names()
             rows = session.query(SpecialistAgent).order_by(SpecialistAgent.name).all()
             return [r.to_dict(upstream_missing=r.upstream not in upstreams) for r in rows]
+        finally:
+            session.close()
+
+    def update_specialist_agent(
+        self,
+        name: str,
+        role: Optional[str] = None,
+        goal: Optional[str] = None,
+        backstory: Optional[str] = None,
+        model=_UNSET,
+        enabled: Optional[bool] = None,
+        upstream: Optional[str] = None,
+    ) -> dict:
+        """Update editable fields on an existing specialist agent by `name`.
+
+        Every field is optional: omitted fields (`None`, or `_UNSET` for
+        `model`) are left unchanged. `model` is special — `_UNSET` (the
+        default) means "leave the stored value unchanged", while `model=None`
+        means "clear the override" (→ shared `LLM_*` fallback). A non-null
+        `model` is validated as a safe identifier. A non-null `upstream` is
+        re-validated against `leader_upstreams`. `name` is immutable. Raises
+        `ValueError` if the agent does not exist or a provided value is invalid.
+        """
+        _validate_ident(name, "specialist agent name")
+        if upstream is not None:
+            _validate_ident(upstream, "upstream name")
+            if upstream not in self._upstream_names():
+                raise ValueError(f"upstream '{upstream}' not found in leader_upstreams")
+        if model is not _UNSET and model is not None:
+            _validate_ident(model, "model name")
+        session = self.get_session()
+        try:
+            row = session.query(SpecialistAgent).filter(SpecialistAgent.name == name).first()
+            if row is None:
+                raise ValueError(f"specialist agent '{name}' not found")
+            if role is not None:
+                row.role = role
+            if goal is not None:
+                row.goal = goal
+            if backstory is not None:
+                row.backstory = backstory
+            if upstream is not None:
+                row.upstream = upstream
+            if enabled is not None:
+                row.enabled = bool(enabled)
+            if model is not _UNSET:
+                # `None` clears the override; a validated string sets it.
+                row.model = model
+            row.updated_at = datetime.now(timezone.utc)
+            session.commit()
+            session.refresh(row)
+            missing = row.upstream not in self._upstream_names()
+            return row.to_dict(upstream_missing=missing)
+        finally:
+            session.close()
+
+    def delete_specialist_agent(self, name: str) -> dict:
+        """Delete a specialist agent by `name`.
+
+        Refuses with a clear error when any `workflow_steps.agent` row still
+        references the agent (soft ref, no FK) — deleting would silently break
+        `run_workflow` / `run_workflow_step`, so the caller must delete or
+        re-point the step first. No cascade.
+        """
+        _validate_ident(name, "specialist agent name")
+        session = self.get_session()
+        try:
+            row = session.query(SpecialistAgent).filter(SpecialistAgent.name == name).first()
+            if row is None:
+                raise ValueError(f"specialist agent '{name}' not found")
+            # Distinct workflow names whose steps reference this agent.
+            referencing = (
+                session.query(Workflow.name)
+                .join(WorkflowStep, WorkflowStep.workflow_id == Workflow.id)
+                .filter(WorkflowStep.agent == name)
+                .distinct()
+                .order_by(Workflow.name)
+                .all()
+            )
+            names = [r[0] for r in referencing]
+            if names:
+                raise ValueError(
+                    f"specialist agent '{name}' is referenced by workflow(s): "
+                    f"{', '.join(names)}"
+                )
+            session.delete(row)
+            session.commit()
+            return {"deleted": name}
         finally:
             session.close()
 

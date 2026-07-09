@@ -151,7 +151,9 @@ export async function loadCollection(name: string): Promise<CollectionDetail | n
   const items = queryAll(db, `
     SELECT i.id AS item_id,
            i.source_id, i.section_id, i.sort_order,
+           i.score AS item_score,
            s.name AS source_name, s.label AS source_label,
+           s.score AS source_default_score,
            sec.section_name AS section_name,
            sec.instruction AS instruction,
            f.form_type AS form_type
@@ -163,17 +165,25 @@ export async function loadCollection(name: string): Promise<CollectionDetail | n
      ORDER BY i.sort_order, i.id
   `, [Number(coll.id)]);
 
-  const mapped: CollectionItem[] = items.map((r) => ({
-    item_id: Number(r.item_id),
-    source_id: Number(r.source_id),
-    source_name: String(r.source_name),
-    source_label: String(r.source_label),
-    section_id: r.section_id == null ? null : Number(r.section_id),
-    section_name: r.section_name ?? null,
-    form_type: r.form_type ?? null,
-    instruction: r.instruction ?? null,
-    sort_order: Number(r.sort_order ?? 0),
-  }));
+  const mapped: CollectionItem[] = items.map((r) => {
+    const itemScore = r.item_score == null ? null : Number(r.item_score);
+    const sourceDefaultScore =
+      r.source_default_score == null ? null : Number(r.source_default_score);
+    return {
+      item_id: Number(r.item_id),
+      source_id: Number(r.source_id),
+      source_name: String(r.source_name),
+      source_label: String(r.source_label),
+      section_id: r.section_id == null ? null : Number(r.section_id),
+      section_name: r.section_name ?? null,
+      form_type: r.form_type ?? null,
+      instruction: r.instruction ?? null,
+      sort_order: Number(r.sort_order ?? 0),
+      item_score: itemScore,
+      source_default_score: sourceDefaultScore,
+      score: itemScore != null ? itemScore : sourceDefaultScore,
+    };
+  });
 
   return {
     id: Number(coll.id),

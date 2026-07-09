@@ -1,8 +1,10 @@
 # leader-mcp
 
-Multi-harness registry + **data gateway** + **CrewAI data workflows**.
+Multi-harness registry + **single-entry MCP gateway** + **CrewAI data workflows**.
 
-Three layers, all exposed as MCP tools on one server (`python server.py`):
+`leader-mcp` is the sole client-facing entry in `.mcp.json`. Every other MCP in
+the project is reached through it. Three layers, all exposed as MCP tools on
+one server (`python server.py`):
 
 1. **Registry** (`leader_tools.py`) — query the unified function registry across
    harnesses: `list_harnesses`, `search_functions`, `get_function_detail`,
@@ -10,14 +12,29 @@ Three layers, all exposed as MCP tools on one server (`python server.py`):
    `toggle_datasource`, `save_snapshot`, `list_snapshots`, `query_snapshots`,
    `get_column_provenance`, `update_column_meta`.
 
-2. **Data gateway** (`gateway_tools.py`) — route live data requests to the
-   project's 10 data-fetch MCPs (`yfinance`, `edgartools`, `edinet`, `dartlab`,
-   `cnreport`, `hkreport`, `akshare`, `ckan`, `cnstats`, `worldbank`), launched
-   on demand as stdio subprocesses via `fastmcp.Client`. Their launch configs
-   live in the `leader_upstreams` table (seeded from `.mcp.json` by
-   `seed_upstreams.py`). Tools: `list_data_mcps`, `list_data_mcp_tools`,
-   `call_data_mcp`, `ask_data_crew`, `add_data_mcp`, `remove_data_mcp`,
-   `get_data_mcp`. See `openspec/specs/leader-mcp-data-gateway/`.
+2. **MCP gateway** (`gateway_tools.py`) — route calls to ANY other MCP in the
+   project (the 10 data-fetch MCPs `yfinance`, `edgartools`, `edinet`, `dartlab`,
+   `cnreport`, `hkreport`, `akshare`, `ckan`, `cnstats`, `worldbank`, PLUS the
+   non-data MCPs `cron-mcp`, `scrapling-uv-mcp`, `scrapling-docker-mcp`,
+   `daas-mcp`, `dashboard-mcp`, `composite-mcp`, `alerts-mcp`), launched on
+   demand as stdio subprocesses via `fastmcp.Client`. Launch configs live in the
+   `leader_upstreams` table (seeded from `.mcp.json` by `seed_upstreams.py`).
+
+   **Generic tools** (category-agnostic — use these for new callers):
+   `list_mcps`, `list_mcp_tools`, `call_mcp`, `add_mcp`, `remove_mcp`, `get_mcp`.
+
+   **Back-compat aliases** (same implementation, kept for `ask_data_crew` and
+   the crewai-data-workflow): `list_data_mcps`, `list_data_mcp_tools`,
+   `call_data_mcp`, `add_data_mcp`, `remove_data_mcp`, `get_data_mcp`.
+
+   **CrewAI router**: `ask_data_crew` (natural-language data fetch; data-fetch
+   upstreams only). See `openspec/specs/leader-mcp-data-gateway/`.
+
+   Reach any upstream from a client (Trae / Claude Code):
+   ```
+   call_mcp(server="cron-mcp", tool="list_jobs", arguments="{}")
+   call_mcp(server="alerts-mcp", tool="list_series", arguments="{}")
+   ```
 
 3. **CrewAI data workflows** (`specialist_agents.py`, `workflow_database.py`,
    `workflow_tools.py`) — the `crewai-data-workflow` capability. See below.
@@ -31,7 +48,7 @@ data gateway.
 ### Per-agent LLM control — `LEADER_MODELS`
 
 JSON env var `{name: {model, base_url?, api_key?, provider?, vision?}}`
-(mirrors `process-mcp`'s `PROCESS_MODELS`). Per-model fields fall back to the
+(mirrors daas-mcp's `PROCESS_MODELS`). Per-model fields fall back to the
 shared `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` from the root `.env`.
 Unset → a single `"default"` model from the shared `LLM_*` env, so specialist
 agents work with no extra config. Bind an agent to a named model via
@@ -87,3 +104,44 @@ uv run --directory mcp/leader-mcp python seed_specialist_agents.py --unseed
 # offline self-check (temp DB, no crewai/LLM, stub gateway)
 uv run --directory mcp/leader-mcp python selfcheck_workflow.py
 ```
+
+## Single-entry-point operations
+
+`leader-mcp` is the only entry in `.mcp.json`. All other MCPs are reached via
+`call_mcp(server=..., tool=..., arguments=...)`. Their launch configs live in
+`leader_upstreams`, seeded from `.mcp.json` by `seed_upstreams.py`.
+
+### Seed / re-seed upstreams
+
+Run this whenever `.mcp.json` changes (new MCP added, command edited, etc.) —
+it upserts every non-`leader-mcp` entry into `leader_upstreams`:
+
+```bash
+# leader-mcp's venv (matches .mcp.json)
+mcp/leader-mcp/.venv/bin/python mcp/leader-mcp/seed_upstreams.py --dry-run   # preview
+mcp/leader-mcp/.venv/bin/python mcp/leader-mcp/seed_upstreams.py             # write
+
+# rollback: delete all seeded rows + print the .mcp.json snippet to restore
+mcp/leader-mcp/.venv/bin/python mcp/leader-mcp/seed_upstreams.py --unseed
+```
+
+The 10 data-fetch MCPs keep their short names (`yfinance`, `edgartools`, …) so
+`ask_data_crew` and the crewai-data-workflow keep resolving. All other MCPs use
+their full `.mcp.json` key as the upstream `name` (`cron-mcp`, `alerts-mcp`, …).
+
+### Recursion constraint
+
+`composite-mcp` is itself a gateway. Nesting `leader-mcp → composite-mcp →
+<upstream>` works today because composite-mcp's upstreams are disjoint from
+leader-mcp's. **`composite-mcp`'s upstreams MUST NOT include `leader-mcp`** —
+that would create an infinite spawn loop. No code guard enforces this; it is an
+audited invariant. A loop would manifest as a spawn-time hang (not silent
+corruption) and be caught immediately.
+
+### Dashboard note
+
+The Next.js dashboard (`dashboard/src/lib/mcp-client.ts`) spawns MCPs by
+directory path via `getServerConfig(server)`, NOT from `.mcp.json`. So the
+dashboard's direct spawns (e.g. `/chat` → `composite-mcp`, process pages →
+`daas-mcp`) are unaffected by the single-entry-point change — `.mcp.json`
+governs IDE clients (Trae / Claude Code) only.

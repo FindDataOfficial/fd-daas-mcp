@@ -1,6 +1,6 @@
 ## Why
 
-cron-mcp today can only run a shell command or a trivial built-in stub on a schedule — `Schedule.task_name` resolves to a DB `Task.command` (run as a subprocess) or a registry callable (`news_summary`, `weekly_report`, `backup`). It cannot pull data from the project's other MCP servers (`daas` `fetch_data`, `yfinance` `call_yfinance_function`, `edgartools` `get_financials`, …) — neither on a cron nor on demand. combine-mcp already proves the cross-MCP call pattern (`fastmcp.Client` over a stdio transport built from an `.mcp.json` entry), and cron-mcp already depends on `fastmcp` + `mcp`, so this is a thin fetch-and-store layer over an existing primitive — not new infrastructure.
+cron-mcp today can only run a shell command or a trivial built-in stub on a schedule — `Schedule.task_name` resolves to a DB `Task.command` (run as a subprocess) or a registry callable (`news_summary`, `weekly_report`, `backup`). It cannot pull data from the project's other MCP servers (`daas` `fetch_data`, `yfinance` `call_yfinance_function`, `edgartools` `get_financials`, …) — neither on a cron nor on demand. composite-mcp already proves the cross-MCP call pattern (`fastmcp.Client` over a stdio transport built from an `.mcp.json` entry), and cron-mcp already depends on `fastmcp` + `mcp`, so this is a thin fetch-and-store layer over an existing primitive — not new infrastructure.
 
 ## What Changes
 

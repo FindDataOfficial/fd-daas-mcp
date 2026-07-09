@@ -1,0 +1,98 @@
+<!doctype html>
+<!--
+  MCP-Apps sandbox proxy for @mcp-ui/client v7.1.1's AppFrame.
+
+  Protocol (reverse-engineered from @mcp-ui/client@7.1.1 dist):
+    1. On load, post {method: "ui/notifications/sandbox-proxy-ready"} to parent.
+    2. Consume {method: "ui/notifications/sandbox-resource-ready",
+               params: {html, sandbox?, csp?, permissions?}} from parent
+       and write params.html into an inner about:blank iframe via document.write.
+    3. Relay every other postMessage parent <-> inner (the AppBridge JSON-RPC
+       channel: tool-input, tool-result, requests/responses, notifications).
+
+  Note: the proxy HTML committed on mcp-ui's main branch uses the OLDER
+  ui-html-content / ui-proxy-iframe-ready protocol and does NOT work with the
+  v7.1.1 client, so the dashboard ships its own. allow-same-origin is required
+  for the proxy to reach the inner iframe's contentDocument to write the HTML
+  (AppFrame's default; matches mcp-ui's own proxy).
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>MCP-UI Sandbox Proxy</title>
+    <style>
+      html, body { margin: 0; height: 100vh; width: 100vw; }
+      body { display: flex; flex-direction: column; }
+      * { box-sizing: border-box; }
+      iframe { background-color: transparent; border: 0; padding: 0; overflow: hidden; flex-grow: 1; }
+    </style>
+  </head>
+  <body>
+    <script>
+      const inner = document.createElement('iframe');
+      inner.id = 'root';
+      inner.style = 'width:100%;height:100%;border:none;';
+      inner.src = 'about:blank';
+      document.body.appendChild(inner);
+
+      let pendingHtml = null;
+
+      function renderHtmlInIframe(markup, sandbox) {
+        const doc = inner.contentDocument || (inner.contentWindow && inner.contentWindow.document);
+        if (!doc) return false;
+        try {
+          if (sandbox) {
+            inner.setAttribute('sandbox', sandbox);
+          }
+          doc.open();
+          doc.write(markup);
+          doc.close();
+          return true;
+        } catch (error) {
+          console.error('[mcp-ui proxy] Failed to write HTML to inner iframe:', error);
+          return false;
+        }
+      }
+
+      inner.addEventListener('load', () => {
+        if (pendingHtml !== null && renderHtmlInIframe(pendingHtml[0], pendingHtml[1])) {
+          pendingHtml = null;
+        }
+      });
+
+      window.addEventListener('message', (event) => {
+        const data = event.data;
+        if (!data) return;
+
+        if (event.source === window.parent) {
+          // Consume the resource-ready notification to render the guest HTML.
+          if (
+            data.method === 'ui/notifications/sandbox-resource-ready' &&
+            data.params &&
+            typeof data.params.html === 'string'
+          ) {
+            const html = data.params.html;
+            const sandbox = data.params.sandbox;
+            if (!renderHtmlInIframe(html, sandbox)) {
+              pendingHtml = [html, sandbox];
+            }
+            return;
+          }
+          // Forward all other parent messages to the guest (inner iframe).
+          if (inner.contentWindow) {
+            inner.contentWindow.postMessage(data, '*');
+          }
+        } else if (event.source === inner.contentWindow) {
+          // Relay guest messages up to the dashboard parent.
+          window.parent.postMessage(data, '*');
+        }
+      });
+
+      // Notify the host that the proxy is ready to receive HTML.
+      window.parent.postMessage(
+        { method: 'ui/notifications/sandbox-proxy-ready' },
+        '*',
+      );
+    </script>
+  </body>
+</html>

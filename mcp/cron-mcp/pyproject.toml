@@ -8,12 +8,12 @@ dependencies = [
     "fastmcp>=3.4.2",
     "mcp>=1.28.0",
     "sqlalchemy>=2.0.51",
+    "mcp-models",
 ]
 
 [tool.setuptools]
 py-modules = [
     "server",
-    "models",
     "registry",
     "database",
     "agent_runner",
@@ -27,3 +27,6 @@ cron-mcp = "server:main_entry"
 
 [tool.setuptools.package-data]
 "*" = ["*.py"]
+
+[tool.uv.sources]
+mcp-models = { path = "../models", editable = true }

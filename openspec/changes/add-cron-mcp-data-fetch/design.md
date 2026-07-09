@@ -2,7 +2,7 @@
 
 cron-mcp is a FastMCP stdio server (`mcp/cron-mcp/server.py`) wrapping APScheduler. A `Schedule` row (cron_expr + `task_name`) becomes an APScheduler job that calls `execute_task(schedule_id)`. `execute_task` resolves the task name to either a DB `Task` (run `command` as a shell subprocess) or a built-in registry callable, and writes an `Execution` row (`status`, `output` Text). All cron-mcp tables live in the shared schema package `mcp/models/models.py` and the shared DB `mcp/daas.db`.
 
-The project already runs ~15 MCP servers, each registered in `.mcp.json` as `{command, args, cwd, env}` (stdio) entries. `combine-mcp` already connects to those servers as a client: `combine_database.build_client(upstream)` returns a `fastmcp.Client` over a stdio transport, and `client.call_tool(name, args)` / `client.list_tools()` do the work (see `combine_tools.make_chain_tool`). cron-mcp already depends on `fastmcp>=3.4.2` and `mcp>=1.28.0`, so the client primitives are available with no new dependency.
+The project already runs ~15 MCP servers, each registered in `.mcp.json` as `{command, args, cwd, env}` (stdio) entries. `composite-mcp` already connects to those servers as a client: `composite_database.build_client(upstream)` returns a `fastmcp.Client` over a stdio transport, and `client.call_tool(name, args)` / `client.list_tools()` do the work (see `composite_tools.make_chain_tool`). cron-mcp already depends on `fastmcp>=3.4.2` and `mcp>=1.28.0`, so the client primitives are available with no new dependency.
 
 Constraints (from CLAUDE.md / `construction/mcp.md`): schema changes go in `mcp/models/models.py` first; SQLite is the DB; `Base.metadata.create_all` creates new tables; column additions to existing tables use guarded idempotent `ALTER TABLE` (the `daas-mcp` `_migrate_sources_category_id` precedent) — no Alembic.
 
@@ -15,7 +15,7 @@ Constraints (from CLAUDE.md / `construction/mcp.md`): schema changes go in `mcp/
 - Reuse the existing schedule/execution machinery — a scheduled data fetch is just another kind of schedule.
 
 **Non-Goals:**
-- No multi-step pipelines across MCPs (that is `combine-mcp`'s chains).
+- No multi-step pipelines across MCPs (that is `composite-mcp`'s chains).
 - No persistent client connection pooling — a client is spawned per fetch.
 - No file offload for large payloads — results live in a JSON column.
 - No new MCP server, no new `.mcp.json` entry, no changes to other MCPs.
@@ -24,11 +24,11 @@ Constraints (from CLAUDE.md / `construction/mcp.md`): schema changes go in `mcp/
 ## Decisions
 
 ### D1. Call other MCPs as a `fastmcp.Client`, transport built from `.mcp.json`
-cron-mcp reads `.mcp.json` (repo root) and builds a `fastmcp.Client` over a stdio transport (`StdioServerParameters(command, args, cwd, env)`), exactly mirroring `combine_database.build_transport` / `build_client`. Per-call `async with client:` → `await client.call_tool(tool, args)` → `result.data`.
+cron-mcp reads `.mcp.json` (repo root) and builds a `fastmcp.Client` over a stdio transport (`StdioServerParameters(command, args, cwd, env)`), exactly mirroring `composite_database.build_transport` / `build_client`. Per-call `async with client:` → `await client.call_tool(tool, args)` → `result.data`.
 
 - **Why:** reuses a pattern already proven in-repo; `fastmcp.Client` is already a dependency; no new transport code.
 - **Alternative:** spawn the target `server.py` and speak raw JSON-RPC over stdio. Rejected — `fastmcp.Client` already does this and handles content-block parsing.
-- **Alternative:** import the target MCP's Python code in-process. Rejected — only works for MCPs whose deps are installed in cron-mcp's venv, and breaks isolation; combine-mcp deliberately uses subprocess clients.
+- **Alternative:** import the target MCP's Python code in-process. Rejected — only works for MCPs whose deps are installed in cron-mcp's venv, and breaks isolation; composite-mcp deliberately uses subprocess clients.
 
 ### D2. New tables `cron_data_jobs` + `cron_fetch_results`; `Schedule.data_job_id` nullable FK
 `CronDataJob(name unique, source_mcp, tool, arguments JSON, description, timeout, enabled, timestamps)` is the reusable fetch definition. `CronFetchResult(job_id nullable, source_mcp, tool, arguments JSON, status, row_count, data_json JSON, error Text, started_at, finished_at)` stores each fetch's output (`job_id` nullable so ad-hoc `fetch_data_now` results are stored too). `Schedule.data_job_id` is a nullable FK `→ cron_data_jobs.id ON DELETE SET NULL` so a schedule can target a data job instead of a `task_name`.
@@ -57,7 +57,7 @@ Each fetch honors `CronDataJob.timeout` (default 60, reusing `Task.timeout` sema
 
 - **Spawn latency per fetch** — each fetch spawns the target MCP as a subprocess (~1–2s). → Acceptable for cron/manual; document as a known ceiling with an upgrade path (persistent client / pool). Not the hot path.
 - **Large payloads in a JSON column** — a `call_yfinance_function` returning a full price history could be large. → Store as JSON for now; truncate `data_json` at a generous cap (e.g. 5 MB) and set `error` if exceeded. Add file offload when a real payload overflows.
-- **Target MCP must be launchable from cron-mcp's process** — `.mcp.json` uses absolute-ish paths / `uv run --directory`; works when run on the same host. → Fine for this project's single-host layout; no remote HTTP transport in v1 (combine-mcp's http transport shape is available if needed later).
+- **Target MCP must be launchable from cron-mcp's process** — `.mcp.json` uses absolute-ish paths / `uv run --directory`; works when run on the same host. → Fine for this project's single-host layout; no remote HTTP transport in v1 (composite-mcp's http transport shape is available if needed later).
 - **Dangling schedules on job delete** — mitigated by `ON DELETE SET NULL` + `execute_task` treating a null `data_job_id` (with no resolvable `task_name`) as a clear error in the `Execution`.
 - **`asyncio.run` in a scheduler thread** — safe because APScheduler `BackgroundScheduler` runs each job in a thread from its `ThreadPoolExecutor`; each thread creates and tears down its own loop. Not safe if the scheduler is ever moved to `AsyncIOScheduler` — revisit then.
 

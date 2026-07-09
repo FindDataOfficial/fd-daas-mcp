@@ -60,6 +60,17 @@ def fetch_source(source: str, fetcher: str = "uv") -> str:
 
     fetcher is accepted for forward-compat; v1 ignores it (httpx/pypdf only).
     """
+    return fetch_source_with_bytes(source, fetcher)[0]
+
+
+def fetch_source_with_bytes(source: str, fetcher: str = "uv") -> tuple[str, Optional[bytes]]:
+    """Fetch a report as ``(text, raw_bytes)``.
+
+    For URL sources, ``raw_bytes`` is the downloaded response body so callers
+    (the report cache) can persist the original PDF. For local-path sources,
+    ``raw_bytes`` is ``None`` — the file is already on disk and need not be
+    re-cached.
+    """
     if _looks_like_url(source):
         import httpx
 
@@ -67,19 +78,19 @@ def fetch_source(source: str, fetcher: str = "uv") -> str:
         resp.raise_for_status()
         ctype = resp.headers.get("content-type", "").lower()
         if "pdf" in ctype or source.lower().endswith(".pdf"):
-            return extract_pdf_text(resp.content)
+            return extract_pdf_text(resp.content), resp.content
         if "html" in ctype:
-            return strip_html(resp.text)
-        return resp.text
+            return strip_html(resp.text), resp.content
+        return resp.text, resp.content
     # local path
     path = os.path.abspath(source)
     if not os.path.exists(path):
         raise FileNotFoundError(f"source not found and not a URL: {source}")
     if path.lower().endswith(".pdf"):
         with open(path, "rb") as fh:
-            return extract_pdf_text(fh.read())
+            return extract_pdf_text(fh.read()), None
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
-        return fh.read()
+        return fh.read(), None
 
 
 def _looks_like_url(s: str) -> bool:
@@ -142,6 +153,32 @@ def resolve_selector(outline: list[dict], selector: str) -> Optional[dict]:
     for e in outline:
         if pat.search(e["title"]):
             return e
+    return None
+
+
+# ── three major financial statements (三大报表) ─────────────────────
+# Each statement tried consolidated-first, then un-prefixed. Matched via
+# resolve_selector (regex search), so token-prefixed TOC titles like
+# "1、 合并资产负债表" resolve correctly. Parent-only titles (母公司…)
+# never contain the consolidated substring, so they're skipped on the first
+# pass and only matched as a last-resort fallback on the un-prefixed pass.
+STATEMENT_MATCHERS: dict[str, list[str]] = {
+    "income_statement": ["合并利润表", "利润表"],
+    "balance_sheet": ["合并资产负债表", "资产负债表"],
+    "cashflow": ["合并现金流量表", "现金流量表"],
+}
+
+
+def resolve_statement(outline: list[dict], key: str) -> Optional[dict]:
+    """Return the first outline entry matching a statement key, or None.
+
+    Tries each target title in order (consolidated before un-prefixed) via
+    ``resolve_selector`` (exact, then regex substring).
+    """
+    for target in STATEMENT_MATCHERS.get(key, []):
+        entry = resolve_selector(outline, target)
+        if entry is not None:
+            return entry
     return None
 
 
@@ -456,10 +493,12 @@ def get_section(
 ) -> dict:
     """Convenience: resolve filing PDF for (ticker, year, form) then extract a section.
 
-    Reuses the existing fetch_source → parse_outline → resolve_selector
-    → extract_section_text chain so no PDF logic is duplicated.
+    Reuses the cache-aware fetch path (report_cache.get_or_fetch) →
+    parse_outline → resolve_selector → extract_section_text so no PDF is
+    re-downloaded or re-parsed when the same report has been fetched before.
     """
     import cninfo_client
+    import report_cache
 
     company = cninfo_client.lookup_company(ticker_or_name)
     if not company:
@@ -478,8 +517,15 @@ def get_section(
                 f"form={form!r} year={year}"
             )
         }
-    pdf = filings[0]["pdf_url"]
-    text = fetch_source(pdf)
+    top = filings[0]
+    pdf = top["pdf_url"]
+    text, _ = report_cache.get_or_fetch(
+        pdf,
+        stock_code=company["stock_code"],
+        year=year,
+        form=form,
+        announcement_id=top.get("announcement_id") or "",
+    )
     outline = parse_outline(text)
     entry = resolve_selector(outline, section)
     if entry is None:
@@ -542,11 +588,12 @@ def get_special_report(
     Resolves the company, lists filings of the given `category` (any catalog
     name like 招股说明书 / 增发 / 业绩预告, or a raw `category_*` code), and returns
     the top filing's metadata + pdf_url. When `section` is given, fetches the
-    PDF and extracts that section's body via the existing outline pipeline
-    (fetch_source → parse_outline → resolve_selector → extract_section_text) —
-    no PDF logic duplicated. When `section` is omitted, the PDF is NOT downloaded.
+    PDF (via the report cache) and extracts that section's body through the
+    outline pipeline (parse_outline → resolve_selector → extract_section_text)
+    — no PDF logic duplicated. When `section` is omitted, the PDF is NOT downloaded.
     """
     import cninfo_client
+    import report_cache
 
     company = cninfo_client.lookup_company(ticker_or_name)
     if not company:
@@ -578,9 +625,15 @@ def get_special_report(
             "filings": filings,
             "pdf_url": top["pdf_url"],
         }
-    # Section extraction — reuse the existing outline pipeline (no duplication).
+    # Section extraction — via the cache-aware fetch path (no duplication).
     pdf = top["pdf_url"]
-    text = fetch_source(pdf)
+    text, _ = report_cache.get_or_fetch(
+        pdf,
+        stock_code=company["stock_code"],
+        year=year,
+        form=category,
+        announcement_id=top.get("announcement_id") or "",
+    )
     outline = parse_outline(text)
     entry = resolve_selector(outline, section)
     if entry is None:
@@ -601,3 +654,83 @@ def get_special_report(
         "char_count": len(body),
         "text": body,
     }
+
+
+@_tool_safe
+def get_financial_statements(
+    ticker_or_name: str,
+    year: int,
+    form: str = "年度报告",
+) -> dict:
+    """Extract the three major financial statements (三大报表) as text.
+
+    Resolves the company's filing PDF for ``(ticker, year, form)`` (via the
+    report cache — no re-download on repeat), parses the table of contents,
+    and returns the body text of each statement section:
+
+      - income_statement (利润表)         — prefers 合并利润表
+      - balance_sheet (资产负债表)         — prefers 合并资产负债表
+      - cashflow (现金流量表)              — prefers 合并现金流量表
+
+    Falls back to the un-prefixed title when no consolidated version is found.
+    Returns section **text only** — never PDF bytes. Statements not located in
+    the TOC are listed in ``missing`` (with the full ``available`` title list
+    so the caller can fall back to ``get_section`` with a custom selector).
+    """
+    import cninfo_client
+    import report_cache
+
+    company = cninfo_client.lookup_company(ticker_or_name)
+    if not company:
+        return {"error": f"no company matched: {ticker_or_name!r}"}
+    filings = cninfo_client.query_announcements(
+        company["stock_code"],
+        company["org_id"],
+        form=form,
+        year=year,
+        limit=5,
+    )
+    if not filings:
+        return {
+            "error": (
+                f"no filing found for {company['stock_code']} "
+                f"form={form!r} year={year}"
+            )
+        }
+    top = filings[0]
+    pdf = top["pdf_url"]
+    text, cache_info = report_cache.get_or_fetch(
+        pdf,
+        stock_code=company["stock_code"],
+        year=year,
+        form=form,
+        announcement_id=top.get("announcement_id") or "",
+    )
+    outline = parse_outline(text)
+    statements: dict = {}
+    missing: list[str] = []
+    for key in ("income_statement", "balance_sheet", "cashflow"):
+        entry = resolve_statement(outline, key)
+        if entry is None:
+            missing.append(key)
+            continue
+        body = extract_section_text(text, outline, entry)
+        statements[key] = {
+            "title": entry["title"],
+            "outline_entry": entry,
+            "char_count": len(body),
+            "text": body,
+        }
+    result: dict = {
+        "stock_code": company["stock_code"],
+        "company_name": company["name"],
+        "year": year,
+        "form": form,
+        "pdf_url": pdf,
+        "cached": cache_info["cached"],
+        "statements": statements,
+        "missing": missing,
+    }
+    if missing:
+        result["available"] = [e["title"] for e in outline]
+    return result

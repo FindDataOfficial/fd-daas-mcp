@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "test": "cypress run",
-    "test:open": "cypress open"
+    "test:open": "cypress open",
+    "test:e2e": "node scripts/run-e2e.mjs",
+    "test:e2e:open": "start-server-and-test 'next dev --port 3459' http://localhost:3459 'cypress open'"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",
@@ -19,7 +21,9 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@modelcontextprotocol/ext-apps": "^1.7.4",
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "@mcp-ui/client": "^7.1.1",
     "ai": "^5.0.0",
     "echarts": "^5.5.0",
     "echarts-for-react": "^3.0.2",
@@ -37,6 +41,7 @@
     "autoprefixer": "^10.4.0",
     "cypress": "^14.0.0",
     "postcss": "^8.4.0",
+    "start-server-and-test": "^3.0.11",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.6.0"
   }

@@ -22,6 +22,13 @@ from models import (
     DatasourceCollectionItem,
     Entity,
     EntityDatasourceLink,
+    EntityCollection,
+    EntityCollectionItem,
+    EntityCollectionChange,
+    IndicatorRule,
+    IndicatorCollection,
+    IndicatorCollectionItem,
+    IndicatorCollectionChange,
 )
 
 
@@ -35,6 +42,19 @@ _ROUTING_RE = re.compile(r"^mcp=(\S+)\s+tool=(\S+)(?:\s.*)?$")
 _IDENT_PARAM_RE = re.compile(
     r"^(ticker_or_cik|ticker_or_name|ticker_or_code|ticker|symbol|code)$"
 )
+
+
+def _resolve_effective_score(
+    item_score: Optional[float], source_default_score: Optional[float]
+) -> Optional[float]:
+    """Effective score for a collection item: the per-collection override if
+    set, else the datasource's default score, else None (unset). Used by
+    list_collection and set_collection_item_score so the resolution rule lives
+    in one place.
+    """
+    if item_score is not None:
+        return item_score
+    return source_default_score
 
 
 class RegistryService:
@@ -276,6 +296,7 @@ class RegistryService:
         config: Optional[dict] = None,
         category_id: Optional[int] = None,
         enabled: bool = True,
+        score: Optional[float] = None,
     ) -> dict:
         existing = self._session.query(DaasSource).filter(DaasSource.name == name).first()
         if existing is not None:
@@ -291,6 +312,7 @@ class RegistryService:
             config=config,
             category_id=category_id,
             enabled=enabled,
+            score=score,
         )
         self._session.add(src)
         try:
@@ -311,6 +333,8 @@ class RegistryService:
         enabled: Optional[bool] = None,
         category_id: Optional[int] = None,
         clear_category: bool = False,
+        score: Optional[float] = None,
+        clear_score: bool = False,
     ) -> dict:
         src = self._resolve_source(name, datasource_id)
         if src is None:
@@ -331,6 +355,10 @@ class RegistryService:
             if self._session.get(Category, category_id) is None:
                 raise ValueError(f"Category id {category_id} not found")
             src.category_id = category_id
+        if clear_score:
+            src.score = None
+        elif score is not None:
+            src.score = score
         try:
             self._session.commit()
         except Exception:
@@ -373,6 +401,31 @@ class RegistryService:
             .scalar()
         )
         return d
+
+    def _collection_item_detail(self, item: DatasourceCollectionItem) -> dict:
+        """Full detail for one collection item: the item dict plus resolved
+        source/section names and the effective score (item override if set,
+        else the datasource default). Mirrors the per-item shape returned by
+        list_collection so add/set return the same structure."""
+        src = self._session.get(DaasSource, item.source_id)
+        sec = (
+            self._session.get(DatasourceSection, item.section_id) if item.section_id else None
+        )
+        item_score = item.score
+        source_default_score = src.score if src else None
+        return {
+            "item_id": item.id,
+            "collection_id": item.collection_id,
+            "source_id": item.source_id,
+            "source_name": src.name if src else None,
+            "section_id": item.section_id,
+            "section_name": sec.section_name if sec else None,
+            "instruction": sec.instruction if sec else None,
+            "sort_order": item.sort_order,
+            "item_score": item_score,
+            "source_default_score": source_default_score,
+            "score": _resolve_effective_score(item_score, source_default_score),
+        }
 
     # --- Forms & sections --------------------------------------------------
 
@@ -488,6 +541,7 @@ class RegistryService:
         collection_name: str,
         source_name: str,
         section_name: Optional[str] = None,
+        score: Optional[float] = None,
     ) -> dict:
         coll = (
             self._session.query(DatasourceCollection)
@@ -531,6 +585,7 @@ class RegistryService:
             source_id=src.id,
             section_id=section_id,
             sort_order=next_order,
+            score=score,
         )
         self._session.add(item)
         try:
@@ -538,7 +593,7 @@ class RegistryService:
         except Exception:
             self._session.rollback()
             raise
-        return item.to_dict()
+        return self._collection_item_detail(item)
 
     def list_collection(self, collection_name: str) -> dict:
         coll = (
@@ -558,6 +613,8 @@ class RegistryService:
         for it in items:
             src = self._session.get(DaasSource, it.source_id)
             sec = self._session.get(DatasourceSection, it.section_id) if it.section_id else None
+            item_score = it.score
+            source_default_score = src.score if src else None
             resolved.append(
                 {
                     "item_id": it.id,
@@ -566,6 +623,9 @@ class RegistryService:
                     "section_name": sec.section_name if sec else None,
                     "instruction": sec.instruction if sec else None,
                     "sort_order": it.sort_order,
+                    "item_score": item_score,
+                    "source_default_score": source_default_score,
+                    "score": _resolve_effective_score(item_score, source_default_score),
                 }
             )
         return {"collection": coll.to_dict(), "items": resolved}
@@ -608,6 +668,58 @@ class RegistryService:
             self._session.rollback()
             raise
         return {"removed": item.id}
+
+    def set_collection_item_score(
+        self,
+        collection_name: str,
+        source_name: str,
+        section_name: Optional[str] = None,
+        score: Optional[float] = None,
+    ) -> dict:
+        """Set or clear the per-collection `score` override on an existing
+        collection item. `score=None` clears the override so the item falls
+        back to the datasource's default score. Resolves the item by
+        (collection, source, optional section) exactly like
+        remove_from_collection. Returns the updated item detail (including the
+        resolved effective score).
+        """
+        coll = (
+            self._session.query(DatasourceCollection)
+            .filter(DatasourceCollection.name == collection_name)
+            .first()
+        )
+        if coll is None:
+            raise ValueError(f"Collection '{collection_name}' not found")
+        src = self._resolve_source(source_name, None)
+        if src is None:
+            raise ValueError(f"Datasource '{source_name}' not found")
+        section_id: Optional[int] = None
+        if section_name is not None:
+            sec = self._resolve_section(src.id, section_name)
+            if sec is None:
+                raise ValueError(
+                    f"Section '{section_name}' not found for datasource '{source_name}'"
+                )
+            section_id = sec.id
+        q = self._session.query(DatasourceCollectionItem).filter(
+            DatasourceCollectionItem.collection_id == coll.id,
+            DatasourceCollectionItem.source_id == src.id,
+        )
+        if section_name is not None:
+            q = q.filter(DatasourceCollectionItem.section_id == section_id)
+        else:
+            q = q.filter(DatasourceCollectionItem.section_id.is_(None))
+        item = q.first()
+        if item is None:
+            raise ValueError("Item not found in collection")
+        # `score is None` clears the override (back to inheriting the default).
+        item.score = score
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return self._collection_item_detail(item)
 
     def list_collections(self) -> list[dict]:
         """All collections with item counts. Used by the dashboard picker."""
@@ -1087,3 +1199,932 @@ class RegistryService:
             self._session.rollback()
             raise
         return {"deleted": deleted}
+
+
+class EntityCollectionService:
+    """CRUD + membership + add-in/remove-out audit log + rule-based sync for
+    `entity_collections` (named groups of entities — watchlists/portfolios).
+
+    Mirrors RegistryService: thin orchestration over SQLAlchemy models, one
+    shared session, idempotent writes. `add_entity_to_collection` /
+    `remove_entity_from_collection` append to `entity_collection_changes` on
+    every real transition (and are no-ops when the membership is already in
+    the target state). `sync_entity_collection` re-derives rule-based
+    membership and records every add_in/remove_out with source='cron'.
+    """
+
+    def __init__(self, session: Session):
+        self._session = session
+
+    # ── collection CRUD ──────────────────────────────────────────
+
+    def create_entity_collection(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        rule: Optional[dict] = None,
+        rule_script: Optional[str] = None,
+    ) -> dict:
+        if rule is not None and rule_script is not None:
+            raise ValueError(
+                "a collection may have either a rule_json or a rule_script, not both"
+            )
+        existing = (
+            self._session.query(EntityCollection)
+            .filter(EntityCollection.name == name)
+            .first()
+        )
+        if existing is not None:
+            raise ValueError(f"Entity collection '{name}' already exists")
+        coll = EntityCollection(
+            name=name,
+            description=description,
+            rule_json=rule,
+            rule_script=rule_script,
+        )
+        self._session.add(coll)
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return coll.to_dict()
+
+    def list_entity_collections(self) -> list[dict]:
+        rows = (
+            self._session.query(EntityCollection)
+            .order_by(EntityCollection.name)
+            .all()
+        )
+        return [r.to_dict() for r in rows]
+
+    def get_entity_collection(self, name: str) -> dict:
+        coll = self._get_collection(name)
+        d = coll.to_dict()
+        d["members"] = [self._member_detail(i) for i in self._ordered_items(coll.id)]
+        return d
+
+    def update_entity_collection(
+        self,
+        name: str,
+        new_name: Optional[str] = None,
+        description: Optional[str] = None,
+        rule: Optional[dict] = None,
+        clear_rule: bool = False,
+        rule_script: Optional[str] = None,
+    ) -> dict:
+        if rule is not None and rule_script is not None:
+            raise ValueError(
+                "a collection may have either a rule_json or a rule_script, not both"
+            )
+        if (
+            new_name is None
+            and description is None
+            and rule is None
+            and rule_script is None
+            and not clear_rule
+        ):
+            raise ValueError(
+                "at least one of new_name, description, rule, rule_script is required"
+            )
+        coll = self._get_collection(name)
+        if new_name is not None and new_name != name:
+            clash = (
+                self._session.query(EntityCollection)
+                .filter(EntityCollection.name == new_name)
+                .first()
+            )
+            if clash is not None:
+                raise ValueError(f"Entity collection '{new_name}' already exists")
+            coll.name = new_name
+        if description is not None:
+            coll.description = description
+        if clear_rule:
+            coll.rule_json = None
+            coll.rule_script = None
+        else:
+            # Mutually exclusive: setting one clears the other so the invariant
+            # (at most one rule per collection) holds across updates.
+            if rule is not None:
+                coll.rule_json = rule
+                coll.rule_script = None
+            if rule_script is not None:
+                coll.rule_script = rule_script
+                coll.rule_json = None
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return coll.to_dict()
+
+    def delete_entity_collection(self, name: str) -> dict:
+        coll = self._get_collection(name)
+        deleted = coll.id
+        self._session.delete(coll)
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        # items + changes removed by ON DELETE CASCADE
+        return {"deleted": deleted, "name": name}
+
+    # ── membership ───────────────────────────────────────────────
+
+    def add_entity_to_collection(
+        self,
+        collection_name: str,
+        entity_id: Optional[int] = None,
+        entity_type: Optional[str] = None,
+        code: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> dict:
+        coll = self._get_collection(collection_name)
+        eid = self._resolve_entity_id(entity_id, entity_type, code)
+        existing = (
+            self._session.query(EntityCollectionItem)
+            .filter(
+                EntityCollectionItem.collection_id == coll.id,
+                EntityCollectionItem.entity_id == eid,
+            )
+            .first()
+        )
+        if existing is not None:
+            return {"action": "already_member", "collection": coll.name, "entity_id": eid}
+        next_order = (
+            self._session.query(
+                func.coalesce(func.max(EntityCollectionItem.sort_order), -1)
+            )
+            .filter(EntityCollectionItem.collection_id == coll.id)
+            .scalar()
+        ) + 1
+        item = EntityCollectionItem(
+            collection_id=coll.id,
+            entity_id=eid,
+            sort_order=next_order,
+            added_reason=reason,
+        )
+        self._session.add(item)
+        self._session.add(
+            EntityCollectionChange(
+                collection_id=coll.id,
+                entity_id=eid,
+                action="add_in",
+                source="manual",
+                reason=reason,
+            )
+        )
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return {
+            "action": "added",
+            "collection": coll.name,
+            "entity_id": eid,
+            "item": self._member_detail(item),
+        }
+
+    def remove_entity_from_collection(
+        self,
+        collection_name: str,
+        entity_id: Optional[int] = None,
+        entity_type: Optional[str] = None,
+        code: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> dict:
+        coll = self._get_collection(collection_name)
+        eid = self._resolve_entity_id(entity_id, entity_type, code)
+        item = (
+            self._session.query(EntityCollectionItem)
+            .filter(
+                EntityCollectionItem.collection_id == coll.id,
+                EntityCollectionItem.entity_id == eid,
+            )
+            .first()
+        )
+        if item is None:
+            return {"action": "not_member", "collection": coll.name, "entity_id": eid}
+        self._session.delete(item)
+        self._session.add(
+            EntityCollectionChange(
+                collection_id=coll.id,
+                entity_id=eid,
+                action="remove_out",
+                source="manual",
+                reason=reason,
+            )
+        )
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return {"action": "removed", "collection": coll.name, "entity_id": eid}
+
+    def list_entity_collection_items(self, collection_name: str) -> dict:
+        coll = self._get_collection(collection_name)
+        items = self._ordered_items(coll.id)
+        return {
+            "collection": coll.name,
+            "count": len(items),
+            "members": [self._member_detail(i) for i in items],
+        }
+
+    def reorder_entity_collection_items(
+        self, collection_name: str, ordered_item_ids: list[int]
+    ) -> dict:
+        coll = self._get_collection(collection_name)
+        current = {
+            i.id: i
+            for i in self._session.query(EntityCollectionItem)
+            .filter(EntityCollectionItem.collection_id == coll.id)
+            .all()
+        }
+        if set(ordered_item_ids) != set(current.keys()):
+            raise ValueError(
+                "ordered_item_ids must contain exactly the current item ids of this collection"
+            )
+        if len(ordered_item_ids) != len(set(ordered_item_ids)):
+            raise ValueError("ordered_item_ids contains duplicates")
+        for sort_order, item_id in enumerate(ordered_item_ids):
+            current[item_id].sort_order = sort_order
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return {"collection": coll.name, "ordered": ordered_item_ids}
+
+    # ── audit log ────────────────────────────────────────────────
+
+    def list_entity_collection_changes(
+        self,
+        collection_name: Optional[str] = None,
+        entity_id: Optional[int] = None,
+        action: Optional[str] = None,
+        source: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        limit = min(max(limit, 1), 500)
+        offset = max(offset, 0)
+        q = self._session.query(EntityCollectionChange)
+        coll_id: Optional[int] = None
+        if collection_name is not None:
+            coll = self._get_collection(collection_name)
+            coll_id = coll.id
+            q = q.filter(EntityCollectionChange.collection_id == coll_id)
+        if entity_id is not None:
+            q = q.filter(EntityCollectionChange.entity_id == entity_id)
+        if action is not None:
+            if action not in ("add_in", "remove_out"):
+                raise ValueError("action must be 'add_in' or 'remove_out'")
+            q = q.filter(EntityCollectionChange.action == action)
+        if source is not None:
+            if source not in ("manual", "cron"):
+                raise ValueError("source must be 'manual' or 'cron'")
+            q = q.filter(EntityCollectionChange.source == source)
+        total = q.count()
+        rows = (
+            q.order_by(EntityCollectionChange.changed_at.desc(), EntityCollectionChange.id.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+        # Enrich with collection name + entity code/name in one pass.
+        coll_names = {c.id: c.name for c in self._session.query(EntityCollection).all()}
+        ent_map = {
+            e.id: e
+            for e in self._session.query(Entity)
+            .filter(Entity.id.in_([r.entity_id for r in rows]))
+            .all()
+        } if rows else {}
+        out = []
+        for r in rows:
+            e = ent_map.get(r.entity_id)
+            out.append(
+                {
+                    **r.to_dict(),
+                    "collection_name": coll_names.get(r.collection_id),
+                    "entity_code": e.code if e else None,
+                    "entity_name": e.name if e else None,
+                }
+            )
+        return {"changes": out, "count": len(out), "total": total, "offset": offset}
+
+    # ── sync ─────────────────────────────────────────────────────
+
+    def sync_entity_collection(self, name: str) -> dict:
+        coll = self._get_collection(name)
+        current_rows = (
+            self._session.query(EntityCollectionItem)
+            .filter(EntityCollectionItem.collection_id == coll.id)
+            .all()
+        )
+        current_ids = {r.entity_id for r in current_rows}
+        if coll.rule_json is not None:
+            intended_ids = set(self._rule_entity_ids(coll.rule_json))
+            rule_kind = "json"
+        elif coll.rule_script is not None:
+            intended_ids = set(self._script_entity_ids(coll.rule_script))
+            rule_kind = "script"
+        else:
+            return {
+                "action": "manual_collection",
+                "name": coll.name,
+                "added": [],
+                "removed": [],
+                "unchanged": len(current_ids),
+            }
+        to_add = intended_ids - current_ids
+        to_remove = current_ids - intended_ids
+        unchanged = len(intended_ids & current_ids)
+        # Append at end: sort_order = max(existing) + 1, +1 each.
+        next_order = (
+            self._session.query(
+                func.coalesce(func.max(EntityCollectionItem.sort_order), -1)
+            )
+            .filter(EntityCollectionItem.collection_id == coll.id)
+            .scalar()
+        )
+        added_details = []
+        for eid in to_add:
+            next_order += 1
+            item = EntityCollectionItem(
+                collection_id=coll.id,
+                entity_id=eid,
+                sort_order=next_order,
+                added_reason=f"sync: rule matched",
+            )
+            self._session.add(item)
+            self._session.add(
+                EntityCollectionChange(
+                    collection_id=coll.id,
+                    entity_id=eid,
+                    action="add_in",
+                    source="cron",
+                    reason="sync: rule matched",
+                )
+            )
+            added_details.append(eid)
+        removed_details = []
+        for eid in to_remove:
+            item = (
+                self._session.query(EntityCollectionItem)
+                .filter(
+                    EntityCollectionItem.collection_id == coll.id,
+                    EntityCollectionItem.entity_id == eid,
+                )
+                .first()
+            )
+            if item is not None:
+                self._session.delete(item)
+            self._session.add(
+                EntityCollectionChange(
+                    collection_id=coll.id,
+                    entity_id=eid,
+                    action="remove_out",
+                    source="cron",
+                    reason="sync: rule no longer matches",
+                )
+            )
+            removed_details.append(eid)
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return {
+            "action": "synced",
+            "name": coll.name,
+            "rule": rule_kind,
+            "added": added_details,
+            "removed": removed_details,
+            "unchanged": unchanged,
+        }
+
+    # ── helpers ──────────────────────────────────────────────────
+
+    def _get_collection(self, name: str) -> EntityCollection:
+        coll = (
+            self._session.query(EntityCollection)
+            .filter(EntityCollection.name == name)
+            .first()
+        )
+        if coll is None:
+            raise ValueError(f"Entity collection '{name}' not found")
+        return coll
+
+    def _resolve_entity_id(
+        self,
+        entity_id: Optional[int],
+        entity_type: Optional[str],
+        code: Optional[str],
+    ) -> int:
+        if entity_id is not None:
+            e = self._session.get(Entity, entity_id)
+            if e is None:
+                raise ValueError(f"entity id {entity_id} not found")
+            return e.id
+        if entity_type is None or code is None:
+            raise ValueError("provide entity_id, or both entity_type and code")
+        e = (
+            self._session.query(Entity)
+            .filter(Entity.entity_type == entity_type, Entity.code == code)
+            .first()
+        )
+        if e is None:
+            raise ValueError(
+                f"entity not found for (entity_type={entity_type!r}, code={code!r})"
+            )
+        return e.id
+
+    def _ordered_items(self, collection_id: int) -> list:
+        return (
+            self._session.query(EntityCollectionItem)
+            .filter(EntityCollectionItem.collection_id == collection_id)
+            .order_by(EntityCollectionItem.sort_order, EntityCollectionItem.id)
+            .all()
+        )
+
+    def _member_detail(self, item: EntityCollectionItem) -> dict:
+        e = item.entity
+        d = item.to_dict()
+        if e is not None:
+            d["entity_type"] = e.entity_type
+            d["code"] = e.code
+            d["name"] = e.name
+            d["ticker"] = e.ticker
+            d["exchange"] = e.exchange
+            d["country_code"] = e.country_code
+        else:
+            d.update(
+                entity_type=None, code=None, name=None, ticker=None,
+                exchange=None, country_code=None,
+            )
+        return d
+
+    def _rule_entity_ids(self, rule: dict) -> list[int]:
+        """Apply the rule filter to `entities` and return matching entity ids.
+
+        Rule keys (AND-combined): entity_type, exchange, country_code,
+        codes (list), name_regex.
+        """
+        q = self._session.query(Entity)
+        et = rule.get("entity_type")
+        if et:
+            q = q.filter(Entity.entity_type == et)
+        ex = rule.get("exchange")
+        if ex:
+            q = q.filter(Entity.exchange == ex)
+        cc = rule.get("country_code")
+        if cc:
+            q = q.filter(Entity.country_code == cc)
+        codes = rule.get("codes")
+        if codes:
+            q = q.filter(Entity.code.in_(list(codes)))
+        name_regex = rule.get("name_regex")
+        if name_regex:
+            # Uses the REGEXP function registered on the engine in
+            # daas_database._enable_fk. Falls back to LIKE if the operator
+            # raises (e.g. REGEXP not registered on this connection).
+            try:
+                q = q.filter(Entity.name.op("REGEXP")(name_regex))
+            except Exception:
+                q = q.filter(Entity.name.like(f"%{name_regex}%"))
+        return [e.id for e in q.all()]
+
+    # ── script rule ──────────────────────────────────────────────
+
+    def _script_entity_ids(self, script_path: str) -> list[int]:
+        """Load a rule script, call `members(ctx)`, normalize the result to
+        entity ids. The script path is repo-root relative (or absolute); it
+        runs with a read-only `RuleScriptContext` so it can SELECT from any
+        daas.db table. Items that don't resolve to a known entity are skipped
+        — a sync shouldn't fail the whole collection over one delisted code.
+        """
+        from entity_rule_script import run_rule_script
+
+        db_url = str(self._session.bind.url)
+        result = run_rule_script(script_path, db_url)
+        return self._normalize_member_items(result)
+
+    def _normalize_member_items(self, items: list) -> list[int]:
+        """Resolve the script's returned member items to entity ids.
+
+        Each item may be:
+          - int  → an entity id directly
+          - str  → a stock code (entity_type defaults to 'stock')
+          - dict → {"entity_type":..,"code":..} or {"entity_id":int}
+        Unknown items are skipped.
+        """
+        ids: list[int] = []
+        for item in items:
+            eid = self._resolve_script_item(item)
+            if eid is not None:
+                ids.append(eid)
+        return ids
+
+    def _resolve_script_item(self, item) -> Optional[int]:
+        if isinstance(item, bool):  # bool is a subclass of int; ignore
+            return None
+        if isinstance(item, int):
+            e = self._session.get(Entity, item)
+            return e.id if e else None
+        if isinstance(item, str):
+            e = (
+                self._session.query(Entity)
+                .filter(Entity.entity_type == "stock", Entity.code == item)
+                .first()
+            )
+            return e.id if e else None
+        if isinstance(item, dict):
+            if item.get("entity_id") is not None:
+                e = self._session.get(Entity, item["entity_id"])
+                return e.id if e else None
+            code = item.get("code")
+            if code is not None:
+                et = item.get("entity_type", "stock")
+                e = (
+                    self._session.query(Entity)
+                    .filter(Entity.entity_type == et, Entity.code == code)
+                    .first()
+                )
+                return e.id if e else None
+        return None
+
+
+class IndicatorCollectionService:
+    """CRUD + membership + add-in/remove-out audit log for `indicator_collections`
+    (named groups of indicators), with a 3-level per-item score resolution:
+    `COALESCE(item.score, indicator_rules.score, sources.score)` — item override
+    → indicator default → datasource default.
+
+    Mirrors EntityCollectionService: thin orchestration over SQLAlchemy models,
+    one shared session, idempotent writes. `add_indicator_to_collection` /
+    `remove_indicator_from_collection` append to `indicator_collection_changes`
+    on every real transition (and are no-ops when the membership is already in
+    the target state). Indicator membership is a real FK→indicator_rules.id
+    with ON DELETE CASCADE; the audit row is denormalized on `indicator_name`
+    so it survives indicator-rule deletion.
+    """
+
+    def __init__(self, session: Session):
+        self._session = session
+
+    # ── collection CRUD ──────────────────────────────────────────
+
+    def create_indicator_collection(
+        self, name: str, description: Optional[str] = None
+    ) -> dict:
+        existing = (
+            self._session.query(IndicatorCollection)
+            .filter(IndicatorCollection.name == name)
+            .first()
+        )
+        if existing is not None:
+            raise ValueError(f"Indicator collection '{name}' already exists")
+        coll = IndicatorCollection(name=name, description=description)
+        self._session.add(coll)
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return coll.to_dict()
+
+    def list_indicator_collections(self) -> list[dict]:
+        rows = (
+            self._session.query(IndicatorCollection)
+            .order_by(IndicatorCollection.name)
+            .all()
+        )
+        return [r.to_dict() for r in rows]
+
+    def get_indicator_collection(self, name: str) -> dict:
+        coll = self._get_collection(name)
+        d = coll.to_dict()
+        d["items"] = [self._item_detail(i) for i in self._ordered_items(coll.id)]
+        return d
+
+    def update_indicator_collection(
+        self,
+        name: str,
+        new_name: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> dict:
+        if new_name is None and description is None:
+            raise ValueError("at least one of new_name, description is required")
+        coll = self._get_collection(name)
+        if new_name is not None and new_name != name:
+            clash = (
+                self._session.query(IndicatorCollection)
+                .filter(IndicatorCollection.name == new_name)
+                .first()
+            )
+            if clash is not None:
+                raise ValueError(f"Indicator collection '{new_name}' already exists")
+            coll.name = new_name
+        if description is not None:
+            coll.description = description
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return coll.to_dict()
+
+    def delete_indicator_collection(self, name: str) -> dict:
+        coll = self._get_collection(name)
+        deleted = coll.id
+        self._session.delete(coll)
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        # items + changes removed by ON DELETE CASCADE
+        return {"deleted": deleted, "name": name}
+
+    # ── membership ───────────────────────────────────────────────
+
+    def add_indicator_to_collection(
+        self,
+        collection_name: str,
+        indicator_name: str,
+        score: Optional[float] = None,
+        reason: Optional[str] = None,
+    ) -> dict:
+        coll = self._get_collection(collection_name)
+        ind = self._resolve_indicator(indicator_name)
+        existing = (
+            self._session.query(IndicatorCollectionItem)
+            .filter(
+                IndicatorCollectionItem.collection_id == coll.id,
+                IndicatorCollectionItem.indicator_id == ind.id,
+            )
+            .first()
+        )
+        if existing is not None:
+            return {
+                "action": "already_member",
+                "collection": coll.name,
+                "indicator_name": ind.name,
+            }
+        next_order = (
+            self._session.query(
+                func.coalesce(func.max(IndicatorCollectionItem.sort_order), -1)
+            )
+            .filter(IndicatorCollectionItem.collection_id == coll.id)
+            .scalar()
+        ) + 1
+        item = IndicatorCollectionItem(
+            collection_id=coll.id,
+            indicator_id=ind.id,
+            sort_order=next_order,
+            score=score,
+        )
+        self._session.add(item)
+        self._session.add(
+            IndicatorCollectionChange(
+                collection_id=coll.id,
+                indicator_name=ind.name,
+                action="add_in",
+                source="manual",
+                reason=reason,
+            )
+        )
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        self._session.refresh(item)
+        return {
+            "action": "added",
+            "collection": coll.name,
+            "indicator_name": ind.name,
+            "item": self._item_detail(item),
+        }
+
+    def remove_indicator_from_collection(
+        self,
+        collection_name: str,
+        indicator_name: str,
+        reason: Optional[str] = None,
+    ) -> dict:
+        coll = self._get_collection(collection_name)
+        ind = self._resolve_indicator(indicator_name)
+        item = (
+            self._session.query(IndicatorCollectionItem)
+            .filter(
+                IndicatorCollectionItem.collection_id == coll.id,
+                IndicatorCollectionItem.indicator_id == ind.id,
+            )
+            .first()
+        )
+        if item is None:
+            return {
+                "action": "not_member",
+                "collection": coll.name,
+                "indicator_name": ind.name,
+            }
+        self._session.delete(item)
+        self._session.add(
+            IndicatorCollectionChange(
+                collection_id=coll.id,
+                indicator_name=ind.name,
+                action="remove_out",
+                source="manual",
+                reason=reason,
+            )
+        )
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return {
+            "action": "removed",
+            "collection": coll.name,
+            "indicator_name": ind.name,
+        }
+
+    def list_indicator_collection_items(self, collection_name: str) -> dict:
+        coll = self._get_collection(collection_name)
+        items = self._ordered_items(coll.id)
+        return {
+            "collection": coll.name,
+            "count": len(items),
+            "items": [self._item_detail(i) for i in items],
+        }
+
+    def reorder_indicator_collection_items(
+        self, collection_name: str, ordered_item_ids: list[int]
+    ) -> dict:
+        coll = self._get_collection(collection_name)
+        current = {
+            i.id: i
+            for i in self._session.query(IndicatorCollectionItem)
+            .filter(IndicatorCollectionItem.collection_id == coll.id)
+            .all()
+        }
+        if set(ordered_item_ids) != set(current.keys()):
+            raise ValueError(
+                "ordered_item_ids must contain exactly the current item ids of this collection"
+            )
+        if len(ordered_item_ids) != len(set(ordered_item_ids)):
+            raise ValueError("ordered_item_ids contains duplicates")
+        for sort_order, item_id in enumerate(ordered_item_ids):
+            current[item_id].sort_order = sort_order
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return {"collection": coll.name, "ordered": ordered_item_ids}
+
+    def set_indicator_collection_item_score(
+        self,
+        collection_name: str,
+        indicator_name: str,
+        score: Optional[float] = None,
+    ) -> dict:
+        """Set the per-item `score` override (float) or clear it (None →
+        inherit the indicator's default `indicator_rules.score`, which itself
+        inherits the datasource default when NULL)."""
+        coll = self._get_collection(collection_name)
+        ind = self._resolve_indicator(indicator_name)
+        item = (
+            self._session.query(IndicatorCollectionItem)
+            .filter(
+                IndicatorCollectionItem.collection_id == coll.id,
+                IndicatorCollectionItem.indicator_id == ind.id,
+            )
+            .first()
+        )
+        if item is None:
+            raise ValueError(
+                f"indicator '{indicator_name}' is not in collection '{collection_name}'"
+            )
+        if score is not None and not isinstance(score, (int, float)):
+            raise ValueError("score must be a number or null")
+        item.score = float(score) if score is not None else None
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        self._session.refresh(item)
+        return self._item_detail(item)
+
+    # ── audit log ────────────────────────────────────────────────
+
+    def list_indicator_collection_changes(
+        self,
+        collection_name: Optional[str] = None,
+        action: Optional[str] = None,
+        source: Optional[str] = None,
+        indicator_name: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        limit = min(max(limit, 1), 500)
+        offset = max(offset, 0)
+        q = self._session.query(IndicatorCollectionChange)
+        if collection_name is not None:
+            coll = self._get_collection(collection_name)
+            q = q.filter(IndicatorCollectionChange.collection_id == coll.id)
+        if action is not None:
+            if action not in ("add_in", "remove_out"):
+                raise ValueError("action must be 'add_in' or 'remove_out'")
+            q = q.filter(IndicatorCollectionChange.action == action)
+        if source is not None:
+            if source not in ("manual", "cron"):
+                raise ValueError("source must be 'manual' or 'cron'")
+            q = q.filter(IndicatorCollectionChange.source == source)
+        if indicator_name is not None:
+            q = q.filter(IndicatorCollectionChange.indicator_name == indicator_name)
+        total = q.count()
+        rows = (
+            q.order_by(
+                IndicatorCollectionChange.changed_at.desc(),
+                IndicatorCollectionChange.id.desc(),
+            )
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+        coll_names = {c.id: c.name for c in self._session.query(IndicatorCollection).all()}
+        out = [
+            {**r.to_dict(), "collection_name": coll_names.get(r.collection_id)}
+            for r in rows
+        ]
+        return {"changes": out, "count": len(out), "total": total, "offset": offset}
+
+    # ── helpers ──────────────────────────────────────────────────
+
+    def _get_collection(self, name: str) -> IndicatorCollection:
+        coll = (
+            self._session.query(IndicatorCollection)
+            .filter(IndicatorCollection.name == name)
+            .first()
+        )
+        if coll is None:
+            raise ValueError(f"Indicator collection '{name}' not found")
+        return coll
+
+    def _resolve_indicator(self, name: str) -> IndicatorRule:
+        ind = (
+            self._session.query(IndicatorRule)
+            .filter(IndicatorRule.name == name)
+            .first()
+        )
+        if ind is None:
+            raise ValueError(f"Indicator '{name}' not found")
+        return ind
+
+    def _ordered_items(self, collection_id: int) -> list:
+        return (
+            self._session.query(IndicatorCollectionItem)
+            .filter(IndicatorCollectionItem.collection_id == collection_id)
+            .order_by(IndicatorCollectionItem.sort_order, IndicatorCollectionItem.id)
+            .all()
+        )
+
+    def _datasource_scores(self) -> dict:
+        """Map every daas sources.name → its default `score`."""
+        return {
+            n: s for (n, s) in self._session.query(DaasSource.name, DaasSource.score).all()
+        }
+
+    def _item_detail(self, item: IndicatorCollectionItem) -> dict:
+        """Item dict + the 3-level effective score resolution:
+        item.score → indicator_rules.score → sources.score → NULL.
+
+        Returns `item_score` (raw override, NULL = inherit), `indicator_default_score`,
+        `source_default_score`, and `score` (resolved effective).
+        """
+        d = item.to_dict()
+        ind = item.indicator
+        ds_scores = self._datasource_scores()
+        ind_score = ind.score if ind is not None else None
+        ds_score = ds_scores.get(ind.datasource) if ind is not None else None
+        d["indicator_name"] = ind.name if ind is not None else None
+        # Raw per-item override (NULL = inherit). `to_dict()` already set
+        # `score` to item.score; rename it to `item_score` and recompute the
+        # resolved `score` below.
+        d["item_score"] = item.score
+        d["indicator_default_score"] = ind_score
+        d["source_default_score"] = ds_score
+        # 3-level resolution: item override → indicator default → datasource default.
+        if item.score is not None:
+            d["score"] = item.score
+        elif ind_score is not None:
+            d["score"] = ind_score
+        else:
+            d["score"] = ds_score
+        return d

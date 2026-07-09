@@ -4,6 +4,8 @@ import { REPO_ROOT } from '@/lib/paths';
 import fs from 'fs';
 import path from 'path';
 import { SettingsForm } from './settings-form';
+import { readRootEnv } from '@/lib/env-sync';
+import EnvEditor from './env-editor';
 
 const ROOT_ENV = path.join(REPO_ROOT, '.env');
 
@@ -115,6 +117,8 @@ export default async function SettingsPage() {
     globalRuntimeMap[s.key] = s;
   }
 
+  const rootEnvContent = readRootEnv();
+
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">Settings</h1>
@@ -173,12 +177,13 @@ export default async function SettingsPage() {
       <section className="mb-8">
         <h2 className="text-lg font-semibold mb-3">
           Runtime Settings
-          <span className="ml-2 text-xs font-normal text-green-600 bg-green-50 px-2 py-0.5 rounded">
-            Live
+          <span className="ml-2 text-xs font-normal text-amber-600 bg-amber-50 px-2 py-0.5 rounded">
+            Restart Required
           </span>
         </h2>
         <p className="text-sm text-gray-500 mb-3">
-          Changes take effect immediately on the next MCP tool invocation. No restart needed.
+          Changes are synced to <code>.env</code> (root for globals, <code>mcp/&lt;mcp&gt;/.env</code> for
+          overrides) and require restarting affected services — MCPs load <code>.env</code> only at startup.
         </p>
         <div className="border rounded-lg bg-white overflow-hidden">
           <table className="w-full text-sm">
@@ -302,6 +307,16 @@ export default async function SettingsPage() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      {/* ── Raw .env editor ── */}
+      <section className="mb-8">
+        <h2 className="text-lg font-semibold mb-3">Raw .env editor</h2>
+        <p className="text-sm text-gray-500 mb-3">
+          Edit the repo-root <code>.env</code> directly. Covers only the root file; per-MCP overrides are
+          edited via the table above.
+        </p>
+        <EnvEditor initialContent={rootEnvContent} />
       </section>
     </div>
   );

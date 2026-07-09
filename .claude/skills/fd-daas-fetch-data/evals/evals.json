@@ -1,0 +1,26 @@
+{
+  "skill_name": "fd-daas-fetch-data",
+  "evals": [
+    {
+      "id": 1,
+      "name": "lookup-cn-stock-and-sma",
+      "prompt": "帮我看下比亚迪（002594）在 daas 里有哪些数据源，再给它的日行情收盘价算一个5日均线指标。",
+      "expected_output": "Calls search_entities('比亚迪'), get_entity_coverage(1119), then create_indicator over a scraw_/observations table with op=sma window=5. Surfaces identifier_in_source + columns before creating the indicator.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "lookup-us-stock-rsi",
+      "prompt": "Look up AAPL in the daas registry and compute a 14-day RSI over its daily close.",
+      "expected_output": "Calls search_entities('AAPL'), get_entity_coverage(<id>), then create_indicator or calculate with op=rsi params={window:14}. Validates source_table + value_column exist first.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "entity-not-found",
+      "prompt": "查一下 XYZNOTREAL 这只股票在 daas 里的数据源并做个指标。",
+      "expected_output": "Calls search_entities('XYZNOTREAL'), gets empty/zero results, reports 'entity not found in the daas registry', suggests a looser query, and STOPS — does not call get_entity_coverage or create_indicator.",
+      "files": []
+    }
+  ]
+}

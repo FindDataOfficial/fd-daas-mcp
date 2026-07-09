@@ -287,6 +287,95 @@ def get_data_mcp(name: str) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════
+# Generic aliases — category-agnostic names over the same implementation.
+# `leader-mcp` is the single client-facing entry point; these tools route
+# to ANY upstream in leader_upstreams (data-fetch or otherwise). The
+# `*_data_mcp` tools above remain as back-compat aliases.
+# ═══════════════════════════════════════════════════════════════
+
+
+def list_mcps(include_disabled: bool = False) -> dict:
+    """List all MCP upstreams leader-mcp can route to (generic alias for list_data_mcps).
+
+    Args:
+        include_disabled: If True, also return disabled upstreams.
+    """
+    return list_data_mcps(include_disabled=include_disabled)
+
+
+async def list_mcp_tools(server: str) -> dict:
+    """List the tools exposed by an MCP upstream (generic alias for list_data_mcp_tools).
+
+    Args:
+        server: The upstream name (e.g. 'yfinance' or 'cron-mcp').
+    """
+    return await list_data_mcp_tools(server)
+
+
+async def call_mcp(server: str, tool: str, arguments: str = "{}") -> dict:
+    """Call a tool on an MCP upstream and return its result (generic alias for call_data_mcp).
+
+    Args:
+        server: The upstream name (e.g. 'yfinance' or 'cron-mcp').
+        tool: The tool name on that upstream.
+        arguments: JSON object string of argument name→value pairs.
+    """
+    return await call_data_mcp(server, tool, arguments)
+
+
+def add_mcp(
+    name: str,
+    transport: str = "stdio",
+    command: Optional[str] = None,
+    args: Optional[list] = None,
+    env: Optional[dict] = None,
+    cwd: Optional[str] = None,
+    enabled: bool = True,
+    description: Optional[str] = None,
+) -> dict:
+    """Add or update an MCP upstream (generic alias for add_data_mcp).
+
+    Args:
+        name: Unique upstream name (used as the `server` argument by gateway tools).
+        transport: 'stdio' (default) or 'http'.
+        command: stdio executable (e.g. 'uv' or a fastmcp binary).
+        args: stdio argv list.
+        env: optional stdio env overrides (merged with the current env).
+        cwd: stdio working directory.
+        enabled: If False, the upstream is stored but hidden from gateway tools.
+        description: Optional human-readable description.
+    """
+    return add_data_mcp(
+        name=name,
+        transport=transport,
+        command=command,
+        args=args,
+        env=env,
+        cwd=cwd,
+        enabled=enabled,
+        description=description,
+    )
+
+
+def remove_mcp(name: str) -> dict:
+    """Remove an MCP upstream from the registry (generic alias for remove_data_mcp).
+
+    Args:
+        name: The upstream name to delete.
+    """
+    return remove_data_mcp(name)
+
+
+def get_mcp(name: str) -> dict:
+    """Get one MCP upstream's full launch config (generic alias for get_data_mcp).
+
+    Args:
+        name: The upstream name.
+    """
+    return get_data_mcp(name)
+
+
+# ═══════════════════════════════════════════════════════════════
 # sync wrappers — for the CrewAI DataCrew (which runs sync tools)
 # ═══════════════════════════════════════════════════════════════
 

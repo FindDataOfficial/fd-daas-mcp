@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useChat } from '@ai-sdk/react';
-import { TextStreamChatTransport } from 'ai';
 import ChatInput from '@/components/chat/chat-input';
 import MessageList from '@/components/chat/message-list';
 import {
@@ -14,44 +13,79 @@ import {
   type ChatConversation,
 } from '@/lib/chat-store';
 
+// MCP servers selectable in the chat. composite-mcp is the default (curated
+// multi-upstream surface that ships the render_stock_summary demo UI tool).
+const SERVERS = [
+  'composite-mcp',
+  'leader-mcp',
+  'daas-mcp',
+  'cron-mcp',
+  'dashboard-mcp',
+  'alerts-mcp',
+];
+
+const DEFAULT_SERVER = process.env.NEXT_PUBLIC_MCP_SERVER || 'composite-mcp';
+
 export default function ChatPage() {
   const [conversationId, setConversationId] = useState<string>(() => generateId());
   const [conversations, setConversations] = useState<ChatConversation[]>(() => loadConversations());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [server, setServer] = useState<string>(() => {
+    if (typeof window === 'undefined') return DEFAULT_SERVER;
+    return window.localStorage.getItem('chat-mcp-server') || DEFAULT_SERVER;
+  });
 
-  const initialMessages = getConversation(conversationId);
+  const initialMessages = useMemo(
+    // Stored conversations are UIMessage-shaped; useChat's initialMessages
+    // types as Message[] (legacy) but accepts UIMessage[] at runtime.
+    () => (getConversation(conversationId) as any) ?? [],
+    [conversationId],
+  );
 
   const {
     messages,
-    sendMessage,
+    append,
     status,
     error: chatError,
     setMessages,
   } = useChat({
+    api: '/api/chat',
     id: conversationId,
-    transport: new TextStreamChatTransport({ api: '/api/chat' }),
-    onError: (err) => {
-      setError(err.message);
-    },
+    initialMessages,
+    // ponytail: inject the selected MCP server into every request body so
+    // /api/chat dispatches to the right client (raw for composite-mcp,
+    // @ai-sdk/mcp otherwise). Called per request, so it captures the current
+    // `server` value.
+    experimental_prepareRequestBody: ({ messages: msgs }) => ({
+      messages: msgs,
+      server,
+    }),
+    maxSteps: 10,
+    onError: (err) => setError(err.message),
   });
 
   const loading = status === 'submitted' || status === 'streaming';
 
-  // Persist messages on change
   const handleSend = useCallback(
     (text: string) => {
       setError(null);
-      sendMessage({ text });
+      void append({ role: 'user', content: text });
     },
-    [sendMessage]
+    [append],
   );
 
-  // Save conversation when messages change (debounced by effect in real impl)
+  // Persist messages on change
   if (messages.length > 0) {
-    // pony tail: save on every render when messages change, fine for local use
-    saveConversation(conversationId, messages);
+    saveConversation(conversationId, messages as any);
   }
+
+  const handleServerChange = (next: string) => {
+    setServer(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('chat-mcp-server', next);
+    }
+  };
 
   const handleNewChat = () => {
     const newId = generateId();
@@ -147,6 +181,24 @@ export default function ChatPage() {
             </button>
           )}
           <h1 className="text-sm font-semibold">AI Chat</h1>
+
+          {/* MCP server selector */}
+          <label className="ml-2 flex items-center gap-1 text-xs text-gray-500">
+            Server
+            <select
+              value={server}
+              onChange={(e) => handleServerChange(e.target.value)}
+              className="border rounded px-1.5 py-0.5 text-xs bg-white"
+              title="MCP server for tool calls"
+            >
+              {SERVERS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <button
             onClick={handleNewChat}
             className="ml-auto text-xs text-blue-600 hover:underline"
@@ -166,7 +218,7 @@ export default function ChatPage() {
         )}
 
         {/* Messages */}
-        <MessageList messages={messages} loading={loading} />
+        <MessageList messages={messages as unknown as any[]} loading={loading} server={server} />
 
         {/* Input */}
         <ChatInput onSend={handleSend} disabled={loading} />

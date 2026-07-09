@@ -1,0 +1,464 @@
+{
+  "schema_version": 1,
+  "source": {
+    "name": "wbdata",
+    "label": "World Bank (world_bank_data)",
+    "description": "World Bank Open Data via the world_bank_data package — GDP, population, trade, education, health, environment indicators (yearly cadence)",
+    "url": "https://github.com/mwouts/world_bank_data",
+    "config": {},
+    "enabled": true,
+    "score": 0.8
+  },
+  "functions": [
+    {
+      "name": "wbdata_ny_gdp_mktp_cd",
+      "label": "GDP (current US$)",
+      "description": "World Bank (world_bank_data): GDP (current US$) (indicator: NY.GDP.MKTP.CD)",
+      "category": "macro",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "GDP (current US$)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_ny_gdp_mktp_kd_zg",
+      "label": "GDP growth (annual %)",
+      "description": "World Bank (world_bank_data): GDP growth (annual %) (indicator: NY.GDP.MKTP.KD.ZG)",
+      "category": "macro",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "GDP growth (annual %)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_ny_gdp_pcap_cd",
+      "label": "GDP per capita (current US$)",
+      "description": "World Bank (world_bank_data): GDP per capita (current US$) (indicator: NY.GDP.PCAP.CD)",
+      "category": "macro",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "GDP per capita (current US$)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_sp_pop_totl",
+      "label": "Population, total",
+      "description": "World Bank (world_bank_data): Population, total (indicator: SP.POP.TOTL)",
+      "category": "demographics",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "Population, total", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_sp_pop_grow",
+      "label": "Population growth (annual %)",
+      "description": "World Bank (world_bank_data): Population growth (annual %) (indicator: SP.POP.GROW)",
+      "category": "demographics",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "Population growth (annual %)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_sp_urb_totl",
+      "label": "Urban population",
+      "description": "World Bank (world_bank_data): Urban population (indicator: SP.URB.TOTL)",
+      "category": "demographics",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "Urban population", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_sl_uem_totl_zs",
+      "label": "Unemployment, total (% of labor force)",
+      "description": "World Bank (world_bank_data): Unemployment, total (% of labor force) (indicator: SL.UEM.TOTL.ZS)",
+      "category": "labor",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "Unemployment, total (% of labor force)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_fp_cpi_totl_zg",
+      "label": "Inflation, consumer prices (annual %)",
+      "description": "World Bank (world_bank_data): Inflation, consumer prices (annual %) (indicator: FP.CPI.TOTL.ZG)",
+      "category": "macro",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "Inflation, consumer prices (annual %)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_ne_exp_gnfs_cd",
+      "label": "Exports of goods and services (current US$)",
+      "description": "World Bank (world_bank_data): Exports of goods and services (current US$) (indicator: NE.EXP.GNFS.CD)",
+      "category": "trade",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "Exports of goods and services (current US$)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_ne_imp_gnfs_cd",
+      "label": "Imports of goods and services (current US$)",
+      "description": "World Bank (world_bank_data): Imports of goods and services (current US$) (indicator: NE.IMP.GNFS.CD)",
+      "category": "trade",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "Imports of goods and services (current US$)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_bx_klt_dinv_cd_wd",
+      "label": "Foreign direct investment, net inflows",
+      "description": "World Bank (world_bank_data): Foreign direct investment, net inflows (indicator: BX.KLT.DINV.CD.WD)",
+      "category": "investment",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "Foreign direct investment, net inflows", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_se_prm_enrr",
+      "label": "School enrollment, primary (% gross)",
+      "description": "World Bank (world_bank_data): School enrollment, primary (% gross) (indicator: SE.PRM.ENRR)",
+      "category": "education",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "School enrollment, primary (% gross)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_se_sec_enrr",
+      "label": "School enrollment, secondary (% gross)",
+      "description": "World Bank (world_bank_data): School enrollment, secondary (% gross) (indicator: SE.SEC.ENRR)",
+      "category": "education",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "School enrollment, secondary (% gross)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_sh_xpd_chex_gd_zs",
+      "label": "Health expenditure (% of GDP)",
+      "description": "World Bank (world_bank_data): Health expenditure (% of GDP) (indicator: SH.XPD.CHEX.GD.ZS)",
+      "category": "health",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "Health expenditure (% of GDP)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_sp_dyn_le00_in",
+      "label": "Life expectancy at birth, total (years)",
+      "description": "World Bank (world_bank_data): Life expectancy at birth, total (years) (indicator: SP.DYN.LE00.IN)",
+      "category": "health",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "Life expectancy at birth, total (years)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_it_net_user_zs",
+      "label": "Individuals using the Internet (% of population)",
+      "description": "World Bank (world_bank_data): Individuals using the Internet (% of population) (indicator: IT.NET.USER.ZS)",
+      "category": "technology",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "Individuals using the Internet (% of population)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_en_atm_co2e_kt",
+      "label": "CO2 emissions (kt)",
+      "description": "World Bank (world_bank_data): CO2 emissions (kt) (indicator: EN.ATM.CO2E.KT)",
+      "category": "environment",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "CO2 emissions (kt)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_ag_lnd_frst_zs",
+      "label": "Forest area (% of land area)",
+      "description": "World Bank (world_bank_data): Forest area (% of land area) (indicator: AG.LND.FRST.ZS)",
+      "category": "environment",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "Forest area (% of land area)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_eg_use_elec_kh_pc",
+      "label": "Electric power consumption (kWh per capita)",
+      "description": "World Bank (world_bank_data): Electric power consumption (kWh per capita) (indicator: EG.USE.ELEC.KH.PC)",
+      "category": "energy",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "Electric power consumption (kWh per capita)", "nullable": true}
+      ]
+    },
+    {
+      "name": "wbdata_cm_mkt_lcap_cd",
+      "label": "Market capitalization of listed companies (current US$)",
+      "description": "World Bank (world_bank_data): Market capitalization of listed companies (current US$) (indicator: CM.MKT.LCAP.CD)",
+      "category": "finance",
+      "parameters": [
+        {"name": "country", "type": "str", "required": false, "description": "ISO-2 or ISO-3 country code, list of codes, or 'all' (default: all)"},
+        {"name": "date", "type": "str", "required": false, "description": "Year or range, e.g. '2020' or '2015:2023'"},
+        {"name": "mrv", "type": "int", "required": false, "description": "Most recent N values (e.g. mrv=1 for latest year)"}
+      ],
+      "output_type": "DataFrame",
+      "frequency": "yearly",
+      "columns": [
+        {"name": "country", "type": "str", "description": "Country name", "nullable": false},
+        {"name": "country_code", "type": "str", "description": "ISO-3 country code", "nullable": true},
+        {"name": "year", "type": "str", "description": "Year", "nullable": false},
+        {"name": "value", "type": "float64", "description": "Market capitalization of listed companies (current US$)", "nullable": true}
+      ]
+    }
+  ],
+  "entities": [
+    {"entity_type": "country", "code": "USA", "name": "United States", "ticker": null, "exchange": null, "country_code": "USA", "isin": null, "aliases": ["US", "United States of America", "America"], "status": "active", "identifier_in_source": "USA"},
+    {"entity_type": "country", "code": "CHN", "name": "China", "ticker": null, "exchange": null, "country_code": "CHN", "isin": null, "aliases": ["CN", "People's Republic of China"], "status": "active", "identifier_in_source": "CHN"},
+    {"entity_type": "country", "code": "JPN", "name": "Japan", "ticker": null, "exchange": null, "country_code": "JPN", "isin": null, "aliases": ["JP"], "status": "active", "identifier_in_source": "JPN"},
+    {"entity_type": "country", "code": "DEU", "name": "Germany", "ticker": null, "exchange": null, "country_code": "DEU", "isin": null, "aliases": ["DE"], "status": "active", "identifier_in_source": "DEU"},
+    {"entity_type": "country", "code": "IND", "name": "India", "ticker": null, "exchange": null, "country_code": "IND", "isin": null, "aliases": ["IN"], "status": "active", "identifier_in_source": "IND"},
+    {"entity_type": "country", "code": "GBR", "name": "United Kingdom", "ticker": null, "exchange": null, "country_code": "GBR", "isin": null, "aliases": ["GB", "UK", "Britain"], "status": "active", "identifier_in_source": "GBR"},
+    {"entity_type": "country", "code": "FRA", "name": "France", "ticker": null, "exchange": null, "country_code": "FRA", "isin": null, "aliases": ["FR"], "status": "active", "identifier_in_source": "FRA"},
+    {"entity_type": "country", "code": "ITA", "name": "Italy", "ticker": null, "exchange": null, "country_code": "ITA", "isin": null, "aliases": ["IT"], "status": "active", "identifier_in_source": "ITA"},
+    {"entity_type": "country", "code": "BRA", "name": "Brazil", "ticker": null, "exchange": null, "country_code": "BRA", "isin": null, "aliases": ["BR"], "status": "active", "identifier_in_source": "BRA"},
+    {"entity_type": "country", "code": "CAN", "name": "Canada", "ticker": null, "exchange": null, "country_code": "CAN", "isin": null, "aliases": ["CA"], "status": "active", "identifier_in_source": "CAN"},
+    {"entity_type": "country", "code": "RUS", "name": "Russian Federation", "ticker": null, "exchange": null, "country_code": "RUS", "isin": null, "aliases": ["RU", "Russia"], "status": "active", "identifier_in_source": "RUS"},
+    {"entity_type": "country", "code": "KOR", "name": "Korea, Rep.", "ticker": null, "exchange": null, "country_code": "KOR", "isin": null, "aliases": ["KR", "South Korea"], "status": "active", "identifier_in_source": "KOR"},
+    {"entity_type": "country", "code": "AUS", "name": "Australia", "ticker": null, "exchange": null, "country_code": "AUS", "isin": null, "aliases": ["AU"], "status": "active", "identifier_in_source": "AUS"},
+    {"entity_type": "country", "code": "MEX", "name": "Mexico", "ticker": null, "exchange": null, "country_code": "MEX", "isin": null, "aliases": ["MX"], "status": "active", "identifier_in_source": "MEX"},
+    {"entity_type": "country", "code": "ESP", "name": "Spain", "ticker": null, "exchange": null, "country_code": "ESP", "isin": null, "aliases": ["ES"], "status": "active", "identifier_in_source": "ESP"},
+    {"entity_type": "country", "code": "IDN", "name": "Indonesia", "ticker": null, "exchange": null, "country_code": "IDN", "isin": null, "aliases": ["ID"], "status": "active", "identifier_in_source": "IDN"},
+    {"entity_type": "country", "code": "NLD", "name": "Netherlands", "ticker": null, "exchange": null, "country_code": "NLD", "isin": null, "aliases": ["NL"], "status": "active", "identifier_in_source": "NLD"},
+    {"entity_type": "country", "code": "SAU", "name": "Saudi Arabia", "ticker": null, "exchange": null, "country_code": "SAU", "isin": null, "aliases": ["SA"], "status": "active", "identifier_in_source": "SAU"},
+    {"entity_type": "country", "code": "TUR", "name": "Turkiye", "ticker": null, "exchange": null, "country_code": "TUR", "isin": null, "aliases": ["TR", "Turkey"], "status": "active", "identifier_in_source": "TUR"},
+    {"entity_type": "country", "code": "CHE", "name": "Switzerland", "ticker": null, "exchange": null, "country_code": "CHE", "isin": null, "aliases": ["CH"], "status": "active", "identifier_in_source": "CHE"},
+    {"entity_type": "country", "code": "POL", "name": "Poland", "ticker": null, "exchange": null, "country_code": "POL", "isin": null, "aliases": ["PL"], "status": "active", "identifier_in_source": "POL"},
+    {"entity_type": "country", "code": "SWE", "name": "Sweden", "ticker": null, "exchange": null, "country_code": "SWE", "isin": null, "aliases": ["SE"], "status": "active", "identifier_in_source": "SWE"},
+    {"entity_type": "country", "code": "BEL", "name": "Belgium", "ticker": null, "exchange": null, "country_code": "BEL", "isin": null, "aliases": ["BE"], "status": "active", "identifier_in_source": "BEL"},
+    {"entity_type": "country", "code": "ARG", "name": "Argentina", "ticker": null, "exchange": null, "country_code": "ARG", "isin": null, "aliases": ["AR"], "status": "active", "identifier_in_source": "ARG"},
+    {"entity_type": "country", "code": "ZAF", "name": "South Africa", "ticker": null, "exchange": null, "country_code": "ZAF", "isin": null, "aliases": ["ZA"], "status": "active", "identifier_in_source": "ZAF"},
+    {"entity_type": "country", "code": "EGY", "name": "Egypt, Arab Rep.", "ticker": null, "exchange": null, "country_code": "EGY", "isin": null, "aliases": ["EG", "Egypt"], "status": "active", "identifier_in_source": "EGY"},
+    {"entity_type": "country", "code": "VNM", "name": "Vietnam", "ticker": null, "exchange": null, "country_code": "VNM", "isin": null, "aliases": ["VN"], "status": "active", "identifier_in_source": "VNM"},
+    {"entity_type": "country", "code": "THA", "name": "Thailand", "ticker": null, "exchange": null, "country_code": "THA", "isin": null, "aliases": ["TH"], "status": "active", "identifier_in_source": "THA"},
+    {"entity_type": "country", "code": "MYS", "name": "Malaysia", "ticker": null, "exchange": null, "country_code": "MYS", "isin": null, "aliases": ["MY"], "status": "active", "identifier_in_source": "MYS"},
+    {"entity_type": "country", "code": "PHL", "name": "Philippines", "ticker": null, "exchange": null, "country_code": "PHL", "isin": null, "aliases": ["PH"], "status": "active", "identifier_in_source": "PHL"}
+  ],
+  "indicator_rules": [
+    {
+      "name": "wbdata_usa_gdp_level",
+      "datasource": "wbdata",
+      "function_name": "wbdata_ny_gdp_mktp_cd",
+      "source_table": "wbdata_ny_gdp_mktp_cd",
+      "date_column": "year",
+      "value_column": "value",
+      "op": "identity",
+      "params_json": {"country": "USA"},
+      "indicator_name": "gdp_level_usd",
+      "enabled": true
+    },
+    {
+      "name": "wbdata_chn_population_total",
+      "datasource": "wbdata",
+      "function_name": "wbdata_sp_pop_totl",
+      "source_table": "wbdata_sp_pop_totl",
+      "date_column": "year",
+      "value_column": "value",
+      "op": "identity",
+      "params_json": {"country": "CHN"},
+      "indicator_name": "population_total",
+      "enabled": true
+    },
+    {
+      "name": "wbdata_g20_gdp_growth",
+      "datasource": "wbdata",
+      "function_name": "wbdata_ny_gdp_mktp_kd_zg",
+      "source_table": "wbdata_ny_gdp_mktp_kd_zg",
+      "date_column": "year",
+      "value_column": "value",
+      "op": "identity",
+      "params_json": {"country": ["USA", "CHN", "JPN", "DEU", "IND", "GBR", "FRA", "ITA", "BRA", "CAN", "RUS", "KOR", "AUS", "MEX", "TUR", "ZAF", "SAU", "ARG", "IDN"]},
+      "indicator_name": "gdp_growth_annual_pct",
+      "enabled": true
+    }
+  ]
+}

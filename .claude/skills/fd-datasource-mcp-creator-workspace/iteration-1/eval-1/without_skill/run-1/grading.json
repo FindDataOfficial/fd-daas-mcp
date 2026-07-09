@@ -1,0 +1,35 @@
+{
+  "expectations": [
+    {
+      "text": "Created a purpose-built (registry-free) FastMCP server for ccxt",
+      "passed": true,
+      "evidence": "server.py \u2014 5 tools, lazy-imports ccxt, --selfcheck passes offline."
+    },
+    {
+      "text": "Registered a ccxt source + fetch_ohlcv function + OHLCV columns (open/high/low/close/volume) in daas",
+      "passed": true,
+      "evidence": "1 source, 5 daas_functions, 31 daas_function_columns incl. OHLCV."
+    },
+    {
+      "text": "Mapped OHLCV columns to canonical indicators via canonical_indicators/column_indicator_mappings (NOT via indicator_rules)",
+      "passed": false,
+      "evidence": "Misinterpreted 'map columns to indicators' as the EXISTING daas concept: created 11 indicator_rules (sma20_close, ema20_close, rsi14_close...) over OHLCV. Did NOT use canonical_indicators/column_indicator_mappings \u2014 the new vocabulary layer is absent."
+    },
+    {
+      "text": "Routing sections use the mcp=ccxt-mcp tool=\u2026 param=\u2026 grammar",
+      "passed": true,
+      "evidence": "5 datasource_sections with the routing grammar; OHLCV pre-binds exchange=binance."
+    },
+    {
+      "text": "Documented the entity-domain decision (crypto isn't stocks/countries)",
+      "passed": true,
+      "evidence": "Registered entity_type='crypto' with 5 coins + links; identifier_in_source = unified pair."
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.8,
+    "passed": 4,
+    "failed": 1,
+    "total": 5
+  }
+}

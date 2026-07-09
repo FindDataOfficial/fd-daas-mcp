@@ -19,7 +19,7 @@
 ## 4. MCP client helper (mcp_client.py)
 
 - [ ] 4.1 `list_mcp_servers()` — read project-root `.mcp.json` (repo root = `Path(__file__).resolve().parents[2]`), return stdio entries as `{name: {command, args, cwd, env}}`; exclude `cron-mcp` itself.
-- [ ] 4.2 `build_client(server_name)` — look up the entry, build a `fastmcp.Client` over a stdio transport (mirror `combine_database.build_transport`/`build_client`). Raise a clear error if `server_name` not in `.mcp.json`.
+- [ ] 4.2 `build_client(server_name)` — look up the entry, build a `fastmcp.Client` over a stdio transport (mirror `composite_database.build_transport`/`build_client`). Raise a clear error if `server_name` not in `.mcp.json`.
 - [ ] 4.3 `async call_mcp_tool(server_name, tool, arguments, timeout=60)` — `async with client:` + `asyncio.wait_for(client.call_tool(tool, arguments), timeout)`; return `result.data` (fallback to stringified `result.content` if None).
 - [ ] 4.4 `async list_mcp_tools(server_name)` — `await client.list_tools()` → `[{name, description}]`.
 

@@ -18,7 +18,7 @@ single most common source of bugs.
 | table | owner | what it actually holds | key columns |
 |---|---|---|---|
 | **`sources`** | daas-mcp | the managed data sources (akshare, ckan, worldbank, edgar, edinet, yfinance, cnreport, hkex, + `scraw_*` archives). This is what `create_datasource` / `search_datasources` read/write. | `id`, `name` (unique), `label`, `description`, `url`, `enabled`, `config` (JSON), `category_id` |
-| **`datasources`** | dashboard / combine-mcp (legacy) | MCP-server registry entries (cron, daas, dashboard, leader_mcp, …) — a *different concept* that happens to share the word. | `id`, `name`, `db_type`, `connection_string`, `is_readonly` |
+| **`datasources`** | dashboard / composite-mcp (legacy) | MCP-server registry entries (cron, daas, dashboard, leader_mcp, …) — a *different concept* that happens to share the word. | `id`, `name`, `db_type`, `connection_string`, `is_readonly` |
 
 **Rule of thumb:** when you hear "daas datasource", think `sources`. The
 `datasources` table is not part of the daas data model.
@@ -148,7 +148,7 @@ Key properties:
 - **Unique on the 4-tuple.** Upserts are idempotent: re-running a computation
   over the same `(source, function, indicator, date)` updates the value rather
   than duplicating.
-- **`metadata` carries provenance.** For process-mcp indicators it holds
+- **`metadata` carries provenance.** For daas-mcp computed indicators it holds
   `{rule_name, op, params, value_column}` so a row is traceable back to the rule
   that produced it.
 
@@ -156,17 +156,18 @@ Key properties:
 
 - **daas-mcp** writes native indicators (e.g. `cnstats_cpi`) via its source
   adapters.
-- **process-mcp** writes *computed* indicators (moving averages, returns, RSI,
-  …) via `run_indicator` — see §6. Both upsert on the same unique constraint, so
-  the only consequence of two writers targeting the same 4-tuple is
-  last-write-wins (never duplication). Namespace indicator names (e.g.
-  `sma5_close`) to avoid stomping daas-native indicators.
+- **daas-mcp** also writes *computed* indicators (moving averages, returns, RSI,
+  …) via `run_indicator` — see §6. (The computed-indicator path was formerly a
+  separate `process-mcp`; it has been relocated into daas-mcp.) Both paths
+  upsert on the same unique constraint, so the only consequence of two writers
+  targeting the same 4-tuple is last-write-wins (never duplication). Namespace
+  indicator names (e.g. `sma5_close`) to avoid stomping daas-native indicators.
 
 ---
 
-## 6. How process-mcp indicators write to `observations`
+## 6. How daas-mcp computes indicators into `observations`
 
-process-mcp adds a deterministic math path alongside its LLM-extraction path.
+daas-mcp adds a deterministic math path alongside its LLM-extraction path.
 An **indicator rule** (`indicator_rules` table) binds:
 
 - a daas `datasource` (soft ref to `sources.name`)
@@ -301,4 +302,69 @@ for each linked source returns:
   doesn't need it.
 - **Manual override** via the `link_entity_datasource` / `unlink_entity_datasource`
   tools (e.g. to add an ADR or dual-listing the rules don't cover).
+
+## 8. Entity collections (`entity_collections` + add-in/remove-out audit log)
+
+Named groups of **entities** (stocks + countries) — watchlists / portfolios —
+distinct from the `datasource_collections` of §5 (which group datasources).
+Three tables, all created by `Base.metadata.create_all` (additive — no
+migration, no breaking changes):
+
+- **`entity_collections`** (id, name UNIQUE, description, `rule_json` nullable,
+  created_at, updated_at). `rule_json` is an optional membership rule: a JSON
+  object with AND-combined keys `entity_type`, `exchange`, `country_code`,
+  `codes` (list), `name_regex`. When set, `sync_entity_collection` re-derives
+  the intended member set from `entities` and records the diff. When NULL the
+  collection is manual.
+- **`entity_collection_items`** — the **current** membership (collection_id
+  FK→`entity_collections` CASCADE, entity_id FK→`entities` CASCADE, sort_order,
+  added_at, added_reason; UNIQUE(collection_id, entity_id)). Deleting a
+  collection or an entity cascades to its rows.
+- **`entity_collection_changes`** — append-only audit log of every membership
+  transition: `action` ∈ {`add_in`, `remove_out`}, `source` ∈ {`manual`,
+  `cron`}, `reason`, `changed_at`. Re-adding an entity after removal produces
+  `add_in → remove_out → add_in` (correct audit semantic, not a bug).
+
+### The add-in / remove-out flow
+
+- `add_entity_to_collection` — inserts an `entity_collection_items` row (if
+  absent) **and** appends an `add_in` / `source='manual'` change. No-op
+  (`action='already_member'`, no change recorded) if already a member.
+- `remove_entity_from_collection` — deletes the membership row (if present)
+  **and** appends a `remove_out` / `source='manual'` change. No-op
+  (`action='not_member'`) if not a member.
+- `sync_entity_collection(name)` — for a rule-based collection, diffs the
+  rule's intended set vs current members, applies `add_in` for new matches and
+  `remove_out` for non-matches, all with `source='cron'`. Idempotent (re-run
+  with no entity changes → no changes recorded). A manual collection
+  (`rule_json=NULL`) is a no-op returning `action='manual_collection'`.
+
+### Who writes here
+
+- **daas-mcp tools** (11): `create_entity_collection`, `list_entity_collections`,
+  `get_entity_collection`, `update_entity_collection`, `delete_entity_collection`,
+  `add_entity_to_collection`, `remove_entity_from_collection`,
+  `list_entity_collection_items`, `reorder_entity_collection_items`,
+  `list_entity_collection_changes`, `sync_entity_collection`.
+- **`collection_writer.py`** entity-collection subcommands — the dashboard write
+  sidecar (`create-entity-collection`, `update-entity-collection`,
+  `delete-entity-collection`, `add-entity-item`, `remove-entity-item`,
+  `reorder-entity-items`, `sync-entity-collection`), dispatching to the same
+  `EntityCollectionService`.
+- **`server.py --sync-entity-collection <name>`** CLI branch — runs the sync
+  in-process, prints a JSON summary, exits. This is the cron-mcp task command.
+- **`entity_collection_sync.py`** — `--sync <name>` (ad-hoc, with `--dry-run`),
+  `--register-cron <name>` (idempotently inserts cron-mcp `Task`
+  `entity-collection-sync-<name>` + `Schedule`
+  `entity-collection-sync-<name>-daily`, daily off-minute cron; mirrors
+  `entity_sync.py --register-cron`), `--unregister-cron <name>`.
+- **Dashboard `/entities`** — list/create/edit/detail (members + add/remove +
+  sync + delete + history panel). Writes via `/api/entities/*` →
+  `collection_writer.py`; reads via sql.js (`dashboard/src/lib/entity-collections.ts`).
+
+The `name_regex` rule key uses a Python-side SQLite `REGEXP` function
+registered on the daas engine in `daas_database.py`'s connect listener (next
+to `PRAGMA foreign_keys=ON`). Cross-references: `entity-registry` (§7) for the
+`entities` table these collections group; `entity-datasource-coverage` for
+per-entity datasource links (orthogonal to collection membership).
 
