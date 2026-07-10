@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Build the 强势股趋势监控 Phase 1 MVP dashboard as a self-contained HTML.
 
-Queries mcp/daas.db for the 12 US-leader scraw_<sym>_daily tables + the 72
+Queries the repo-root daas.db for the 12 US-leader scraw_<sym>_daily tables + the 72
 observation series, aligns them per-symbol by date, and writes a standalone
 HTML file (Chart.js from CDN, data inlined as JSON) to:
-    dashboard/my-charts-dashboard/us-leaders-trend-monitor.html
+    mcp/dashboard-mcp/dashboards/us-leaders-trend-monitor.html
 
 Re-run after the daily cron (04:45 Asia/Shanghai indicator recompute) to
 refresh the snapshot. Stdlib only (sqlite3 + json) — no deps.
 
-    python3 dashboard/my-charts-dashboard/build_us_leaders_dashboard.py
+    python3 mcp/dashboard-mcp/dashboards/build_us_leaders_dashboard.py
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import sqlite3
 from pathlib import Path
 
 THIS = Path(__file__).resolve()
-REPO = THIS.parent.parent.parent  # dashboard/my-charts-dashboard/ → repo root
+REPO = THIS.parent.parent.parent.parent  # mcp/dashboard-mcp/dashboards/ → repo root
 DB = REPO / "mcp" / "daas.db"
 OUT = THIS.parent / "us-leaders-trend-monitor.html"
 

@@ -1,11 +1,13 @@
-"""Smoke test for the dashboard's collection-write sidecar path.
+"""Smoke test for the collection-write sidecar path.
 
-Guards the regression that caused "create new collection" to fail in the
-dashboard: the spawned writer (`collection_writer.py`) and the dashboard's
-sql.js read path MUST resolve to the same `mcp/daas.db`, independent of the
-process cwd and of `DAAS_DATABASE_URL` being present in the inherited env.
+Guards that the writer (`collection_writer.py`) resolves to the canonical
+`daas.db`, independent of the process cwd and of `DAAS_DATABASE_URL`
+being present in the inherited env. (Originally guarded the dashboard's
+"create new collection" failure where the spawned writer and the sql.js read
+path resolved to different DBs; the writer remains a standalone CLI after the
+Next.js dashboard was removed.)
 
-This check runs entirely against a TEMP DB (no touch to mcp/daas.db, no
+This check runs entirely against a TEMP DB (no touch to daas.db, no
 network). It exercises:
 
   1. The writer `create` subcommand end-to-end (in-process) and confirms the
@@ -13,11 +15,8 @@ network). It exercises:
   2. The duplicate-name error path.
   3. The `update` (rename) and `delete` subcommands.
   4. The writer's `__file__`-based REPO_ROOT anchor (`parents[2]`) actually
-     points at the dir containing `mcp/daas-mcp/` and `dashboard/`, and that
+     points at the repo root (the dir containing `mcp/daas-mcp/`), and that
      the repo-root `.env` (where DAAS_DATABASE_URL is defined) lives there.
-  5. The TypeScript-side `findRepoRoot()` (dashboard/scripts/check-repo-root.mjs)
-     agrees with the Python `parents[2]` anchor when run from a non-`dashboard/`
-     cwd (the regression case: server launched from the repo root).
 
 Run:
   uv run --directory mcp/daas-mcp python selfcheck_collection_writer.py
@@ -28,7 +27,6 @@ import contextlib
 import io
 import json
 import os
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -132,8 +130,6 @@ def test_repo_root_anchor() -> None:
     repo_root = Path(W.__file__).resolve().parents[2]
     check("mcp/daas-mcp/collection_writer.py exists under REPO_ROOT",
           (repo_root / "mcp" / "daas-mcp" / "collection_writer.py").exists())
-    check("dashboard/package.json exists under REPO_ROOT",
-          (repo_root / "dashboard" / "package.json").exists())
     env_path = repo_root / ".env"
     check("repo-root .env exists", env_path.exists())
     if env_path.exists():
@@ -146,23 +142,6 @@ def test_repo_root_anchor() -> None:
               has_line, "missing non-commented DAAS_DATABASE_URL= line")
 
 
-def test_ts_find_repo_root() -> None:
-    print("[5] TS findRepoRoot() agrees with the Python anchor (run from repo root)")
-    repo_root = Path(W.__file__).resolve().parents[2]
-    script = repo_root / "dashboard" / "scripts" / "check-repo-root.mjs"
-    check("check-repo-root.mjs exists", script.exists(), str(script))
-    if not script.exists():
-        return
-    proc = subprocess.run(
-        ["node", str(script), "--expected", str(repo_root)],
-        cwd=str(repo_root),  # non-dashboard cwd: the regression case
-        capture_output=True, text=True,
-    )
-    check("node check exits 0", proc.returncode == 0, f"rc={proc.returncode} stderr={proc.stderr!r}")
-    check("node reports the same repo root", proc.stdout.strip() == str(repo_root),
-          f"stdout={proc.stdout!r} expected={repo_root}")
-
-
 def main() -> int:
     print("=== daas-mcp collection_writer selfcheck ===")
     print(f"(temp db: {_TMP_DB})")
@@ -170,7 +149,6 @@ def main() -> int:
     test_duplicate_rejected()
     test_update_and_delete()
     test_repo_root_anchor()
-    test_ts_find_repo_root()
     print("===")
     print(f"PASS={PASS} FAIL={FAIL}")
     try:

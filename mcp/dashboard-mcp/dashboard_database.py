@@ -21,12 +21,11 @@ from sqlalchemy.orm import sessionmaker
 
 from models import Base, Dashboard
 
-# mcp/dashboard-mcp/ -> mcp/ (ROOT) and repo root (_REPO_ROOT)
-ROOT = Path(__file__).resolve().parent.parent  # mcp/
+# mcp/dashboard-mcp/ -> repo root (_REPO_ROOT); root .env holds DAAS_DATABASE_URL.
 _REPO_ROOT = Path(__file__).resolve().parents[2]  # repo root
-_DASH_DIR = _REPO_ROOT / "dashboard" / "my-charts-dashboard"
+_DASH_DIR = _REPO_ROOT / "mcp" / "dashboard-mcp" / "dashboards"
 
-load_dotenv(ROOT / ".env")
+load_dotenv(_REPO_ROOT / ".env")  # root .env (DAAS_DATABASE_URL) first
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
 _SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -44,11 +43,11 @@ def _resolve_url(url: str) -> str:
 
 def _get_db_url() -> str:
     """DAAS_DATABASE_URL (resolved against repo root) or the canonical
-    repo-root mcp/daas.db — never dashboard-mcp's local daas.db."""
+    repo-root daas.db — never dashboard-mcp's local daas.db."""
     url = os.environ.get("DAAS_DATABASE_URL")
     if url:
         return _resolve_url(url)
-    return f"sqlite:///{(_REPO_ROOT / 'mcp' / 'daas.db').resolve()}"
+    return f"sqlite:///{(_REPO_ROOT / 'daas.db').resolve()}"
 
 
 class DashboardDatabase:
