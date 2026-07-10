@@ -733,7 +733,7 @@ class DatasourceColumn(Base):
 
 class Dashboard(Base):
     """Metadata for a standalone HTML dashboard built by the `fd-daas-dashboard-creator`
-    skill (one self-contained `dashboard/my-charts-dashboard/<slug>.html` file). This
+    skill (one self-contained `mcp/dashboard-mcp/dashboards/<slug>.html` file). This
     table is the single source of truth for the dashboard registry — `dashboard-mcp`
     CRUD tools read/write it, and `index.html` + `daas.md` are regenerated from it.
 
@@ -756,7 +756,7 @@ class Dashboard(Base):
     time_range = Column(JSON, nullable=True)  # {"start": "2024-01-01", "end": "2024-12-31"} or null
     refresh_cadence = Column(String(128), nullable=True)  # "static snapshot" | "daily 04:30 (Asia/Shanghai)"
     chart_config = Column(JSON, nullable=True)  # [{"type":"line","source_table":...,"x":...,"y":[...]}]
-    file_path = Column(String(512), nullable=False)  # "dashboard/my-charts-dashboard/<slug>.html"
+    file_path = Column(String(512), nullable=False)  # "mcp/dashboard-mcp/dashboards/<slug>.html"
     file_url = Column(String(512), nullable=False)  # "file:///abs/path/to/<slug>.html"
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(

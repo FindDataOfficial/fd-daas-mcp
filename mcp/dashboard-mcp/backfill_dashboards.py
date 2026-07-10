@@ -19,7 +19,7 @@ from dashboard_database import DashboardDatabase  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 SLUG = "us-leaders-trend-monitor"
-HTML_REL = f"dashboard/my-charts-dashboard/{SLUG}.html"
+HTML_REL = f"mcp/dashboard-mcp/dashboards/{SLUG}.html"
 HTML_ABS = _REPO_ROOT / HTML_REL
 
 

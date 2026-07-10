@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dashboard_database as dd  # noqa: E402
 
 # Redirect DB + dash dir BEFORE first instantiation so the singleton picks
-# them up and we don't touch the real mcp/daas.db or real index.html/daas.md.
+# them up and we don't touch the real daas.db or real index.html/daas.md.
 _TMP_DB = Path(tempfile.mkdtemp()) / "daas.db"
 dd._get_db_url = lambda: f"sqlite:///{_TMP_DB}"
 _TMP_DASH = Path(tempfile.mkdtemp())
@@ -37,7 +37,7 @@ def ok(cond, msg):
 print("== dashboard-registry self-check ==")
 
 # 1. URL resolution
-ok(dd._resolve_url("sqlite:///mcp/daas.db").endswith("mcp/daas.db"),
+ok(dd._resolve_url("sqlite:///daas.db").endswith("daas.db"),
    "relative sqlite URL resolves under repo root")
 ok(dd._resolve_url("sqlite:////abs/path.db") == "sqlite:////abs/path.db",
    "absolute sqlite URL passed through unchanged")
@@ -48,7 +48,7 @@ ok(dd._resolve_url("sqlite:///:memory:") == "sqlite:///:memory:",
 r = db.register(
     "byd-daily", "比亚迪日行情", "BYD daily OHLCV + SMA5",
     '["scraw_byd_daily"]', "daily 04:30",
-    "dashboard/my-charts-dashboard/byd-daily.html", "file:///tmp/byd-daily.html",
+    "mcp/dashboard-mcp/dashboards/byd-daily.html", "file:///tmp/byd-daily.html",
 )
 ok(r.get("action") == "inserted" and r["slug"] == "byd-daily", "register inserts a row")
 ok(r["source_tables"] == ["scraw_byd_daily"], "register parses source_tables JSON")
@@ -73,7 +73,7 @@ ok(len(db.search("zzz-not-found")) == 0, "search no-match -> empty")
 r2 = db.register(
     "byd-daily", "比亚迪日行情 v2", "updated intro",
     '["scraw_byd_daily"]', "daily 04:30",
-    "dashboard/my-charts-dashboard/byd-daily.html", "file:///tmp/byd-daily.html",
+    "mcp/dashboard-mcp/dashboards/byd-daily.html", "file:///tmp/byd-daily.html",
 )
 ok(r2["action"] == "updated", "re-register upserts (action=updated)")
 lst = db.list_all()
