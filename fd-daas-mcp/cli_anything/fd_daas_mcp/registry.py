@@ -40,7 +40,6 @@ SOURCES: dict[str, dict[str, Any]] = {
     # Optional groups - skipped (logged) by build() when their dep is absent.
     "scrapling": {"dir": "scrapling-mcp", "inline": True},
     "firecrawl": {"dir": "firecrawl-mcp", "inline": True},
-    "cnreport":  {"dir": "cnreport-mcp", "inline": True},
     "massive":   {"dir": "massive-mcp", "inline": True},
 }
 

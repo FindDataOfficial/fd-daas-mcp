@@ -29,10 +29,6 @@ scrapling = ["scrapling[fetchers]>=0.4.7"]
 # firecrawl powers the firecrawl group (scrape/crawl/map/search via firecrawl.dev).
 # Optional - the registry skips the group when absent.
 firecrawl = ["firecrawl-py>=1.0"]
-# cnreport powers the cnreport group (CNINFO company API + PDF/AI/ES tools), folded
-# from mcp/cnreport-mcp. Deps are lazy-imported so the group is always-on; install
-# for full PDF/ES/financials functionality.
-cnreport = ["pypdf", "elasticsearch>=8.0", "akshare>=1.13", "jsonschema"]
 # massive powers the massive group (search_endpoints/call_api/query_data), folded
 # in-process from the mcp_massive package. NOTE: massive-mcp is not yet re-folded
 # (lost with the prior fd-daas-mcp); the extra is commented out to avoid blocking
