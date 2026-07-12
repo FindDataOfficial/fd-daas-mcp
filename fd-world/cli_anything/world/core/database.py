@@ -12,7 +12,7 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
-from cli_anything.daas.core.models import Base
+from cli_anything.world.core.models import Base
 
 
 class Database:

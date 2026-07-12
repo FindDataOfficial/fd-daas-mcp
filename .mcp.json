@@ -1,14 +1,3 @@
 {
-  "mcpServers": {
-    "leader-mcp": {
-      "type": "stdio",
-      "command": "/Users/chengsishi/code/cli-anything/mcp/leader-mcp/.venv/bin/fastmcp",
-      "args": [
-        "run",
-        "/Users/chengsishi/code/cli-anything/mcp/leader-mcp/server.py",
-        "--no-banner"
-      ],
-      "cwd": "/Users/chengsishi/code/cli-anything/mcp/leader-mcp"
-    }
-  }
+  "mcpServers": {}
 }

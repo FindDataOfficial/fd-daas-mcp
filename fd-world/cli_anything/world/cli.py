@@ -9,15 +9,15 @@ from __future__ import annotations
 import sys
 import click
 
-from cli_anything.daas.core.registry import (
+from cli_anything.world.core.registry import (
     list_functions,
     search_functions,
     get_function_info,
     get_categories,
     list_sources,
 )
-from cli_anything.daas.sources.config import load_sources, get_adapter, SourceConfig
-from cli_anything.daas.utils.output import format_output
+from cli_anything.world.sources.config import load_sources, get_adapter, SourceConfig
+from cli_anything.world.utils.output import format_output
 
 
 @click.group(invoke_without_command=True)
@@ -394,8 +394,8 @@ def _cmd_call_repl(function: str, args: list[str], json_output: bool):
 
 def _cmd_call(function: str, kwargs: dict, json_output: bool):
     """Shared call implementation — routes to correct adapter."""
-    from cli_anything.daas.sources.router import SourceRouter
-    from cli_anything.daas.core.exceptions import DAASError
+    from cli_anything.world.sources.router import SourceRouter
+    from cli_anything.world.core.exceptions import DAASError
 
     router = SourceRouter()
     try:

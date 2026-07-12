@@ -15,5 +15,8 @@ pytest>=8.0
 [repl]
 prompt_toolkit>=3.0
 
+[wbdata]
+world_bank_data>=0.1
+
 [worldbank]
 wbgapi>=1.1

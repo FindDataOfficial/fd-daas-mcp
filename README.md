@@ -1,53 +1,43 @@
-# DAAS — Data as a Service
+# cli-anything
 
-Multi-harness MCP platform for financial, economic, and statistical data — built on [CLI-Anything](https://github.com/HKUDS/CLI-Anything).
+Skill-driven data fetch for financial, economic, and statistical data - built on [CLI-Anything](https://github.com/HKUDS/CLI-Anything).
 
 ## Overview
 
-DAAS wraps 673+ Chinese financial data functions (AKShare), plus CKAN, World Bank, and CNStats data sources, behind MCP servers that AI agents can discover and call.
-
-## MCP Servers
-
-| Server | Purpose |
-|--------|---------|
-| `mcp/akshare-mcp/` | AKShare financial data — 673+ functions (stocks, funds, futures, macro) |
-| `mcp/ckan-mcp/` | CKAN open data portal queries |
-| `mcp/cnstats-mcp/` | China National Statistics data |
-| `mcp/worldbank-mcp/` | World Bank development indicators |
-| `mcp/leader-mcp/` | Unified multi-harness registry — search across all data sources |
-| `mcp/cron-mcp/` | AI-agent-driven cron scheduler with execution history |
-| `mcp/daas-mcp/` | DAAS unified data access layer |
-| `mcp/scrapling-uv-mcp/` | Web scraping with Playwright (stealth mode) |
-| `mcp/scrapling-docker-mcp/` | Web scraping via Docker |
+Skills call Python data libraries (`akshare`, `yfinance`, `edgar`, `edinet-tools`, `dartlab`, `world_bank_data`, `ckanapi`) **directly** and read/write `daas.db` via **sqlite3**. There are no MCP servers and no `fd-*` CLIs - `.mcp.json` is empty.
 
 ## Quick Start
 
 ```bash
-# Python 3.10+, uses uv for dependency management
+# Python 3.10+, uses uv
 uv sync
 
-# Run AKShare CLI (REPL mode)
-uv run cli-anything-akshare
+# Resolve an entity + indicator via sqlite3, then fetch via the Python lib.
+# The skill-based-data-fetch skill owns the workflow; its scripts do the work:
 
-# Search for a financial data function
-uv run cli-anything-akshare search 历史行情
+# List the source dispatch shapes
+uv run python .claude/skills/skill-based-data-fetch/scripts/dispatch.py
 
-# Call a function directly
-uv run cli-anything-akshare call stock_zh_a_hist symbol=000001 start_date=20250101
+# Compute an existing indicator (upserts into observations)
+uv run --with pandas --with numpy python .claude/skills/skill-based-data-fetch/scripts/run_indicator.py SPY_ma5
+
+# Query daas.db directly
+sqlite3 mcp/daas.db "SELECT name, datasource, op FROM indicator_rules LIMIT 10"
 ```
+
+See `CLAUDE.md` for the full architecture and `construction/daas-storage.md` for the `daas.db` schema.
 
 ## Project Structure
 
 ```
-├── akshare-agent-harness/   # AKShare CLI wrapper (Click + REPL)
+├── .claude/skills/          # Skills (skill-based-data-fetch is the core fetch skill)
+├── mcp/daas.db              # The shared SQLite database (registry + observations + scraw_*)
+├── dashboards/              # Standalone HTML dashboards (+ index.html, daas.md)
+├── construction/            # Architecture docs
 ├── CLI-Anything/            # Upstream (do not modify)
-├── mcp/                     # All MCP servers
-│   ├── leader_mcp.db        # Unified registry database
-│   ├── cron.db              # Scheduler database
-│   └── daas_registry.db     # DAAS data registry
-└── .claude/                 # Claude Code skills & settings
+└── .env                     # DAAS_DATABASE_URL, proxy, EDGAR_IDENTITY, EDINET_API_KEY, ...
 ```
 
 ## License
 
-Apache 2.0 — see upstream [CLI-Anything](https://github.com/HKUDS/CLI-Anything).
+Apache 2.0 - see upstream [CLI-Anything](https://github.com/HKUDS/CLI-Anything).

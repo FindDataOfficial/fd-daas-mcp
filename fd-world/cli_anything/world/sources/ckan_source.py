@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cli_anything.daas.sources.base import SourceAdapter
+from cli_anything.world.sources.base import SourceAdapter
 
 # Curated CKAN functions — available even without ckanapi installed
 CKAN_FUNCTIONS = [
@@ -130,7 +130,7 @@ class CKANAdapter(SourceAdapter):
 
     def _get_client(self):
         """Get a CKAN API client. Raises SourceUnavailableError if not installed."""
-        from cli_anything.daas.core.exceptions import SourceUnavailableError
+        from cli_anything.world.core.exceptions import SourceUnavailableError
 
         if not self.is_available():
             raise SourceUnavailableError("ckan", "Install: pip install ckanapi")
@@ -209,7 +209,7 @@ class CKANAdapter(SourceAdapter):
             return pd.DataFrame(rows)
 
         else:
-            from cli_anything.daas.core.exceptions import FunctionNotFoundError
+            from cli_anything.world.core.exceptions import FunctionNotFoundError
             raise FunctionNotFoundError(function_name)
 
     def columns(self, function_name: str) -> list[dict]:

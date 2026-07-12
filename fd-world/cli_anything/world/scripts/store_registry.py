@@ -20,9 +20,9 @@ _HARNESS_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 if _HARNESS_ROOT not in sys.path:
     sys.path.insert(0, _HARNESS_ROOT)
 
-from cli_anything.daas.core.database import get_database
-from cli_anything.daas.core.registry import RegistryService
-from cli_anything.daas.sources.config import load_sources, get_adapter
+from cli_anything.world.core.database import get_database
+from cli_anything.world.core.registry import RegistryService
+from cli_anything.world.sources.config import load_sources, get_adapter
 
 
 def main():

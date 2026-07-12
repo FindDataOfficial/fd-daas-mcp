@@ -13,7 +13,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 
-from cli_anything.daas.core.models import Function, FunctionColumn, Source
+from cli_anything.world.core.models import Function, FunctionColumn, Source
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ class RegistryService:
 # ============================================
 
 def _get_service() -> RegistryService:
-    from cli_anything.daas.core.database import get_database
+    from cli_anything.world.core.database import get_database
 
     db = get_database()
     session = db.get_session()

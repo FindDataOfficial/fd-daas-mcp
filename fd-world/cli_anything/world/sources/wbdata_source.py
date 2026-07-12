@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from cli_anything.daas.sources.base import SourceAdapter
-from cli_anything.daas.sources.worldbank_source import KEY_INDICATORS
+from cli_anything.world.sources.base import SourceAdapter
+from cli_anything.world.sources.worldbank_source import KEY_INDICATORS
 
 
 def _func_name(indicator_code: str) -> str:
