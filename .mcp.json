@@ -2,9 +2,13 @@
   "mcpServers": {
     "fd-daas-mcp": {
       "type": "stdio",
-      "command": "/Users/chengsishi/code/cli-anything/fd-daas-mcp/.venv/bin/python",
+      "command": "/Users/chengsishi/micromamba/bin/python3",
       "args": ["-m", "cli_anything.fd_daas_mcp.server"],
-      "cwd": "/Users/chengsishi/code/cli-anything/fd-daas-mcp"
+      "cwd": "/Users/chengsishi/code/cli-anything/fd-daas-mcp",
+      "env": {
+        "PYTHONPATH": "/Users/chengsishi/code/cli-anything/fd-daas-mcp",
+        "DAAS_DATABASE_URL": "sqlite:////Users/chengsishi/code/cli-anything/daas.db"
+      }
     }
   }
 }
