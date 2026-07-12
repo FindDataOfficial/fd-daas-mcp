@@ -1,6 +1,0 @@
-{
-  "eval_id": 1,
-  "eval_name": "ccxt-crypto-onboarding",
-  "prompt": "Wrap the `ccxt` Python library (crypto exchange market data) as a daas datasource. Build an MCP for it, register it in daas, register entities if applicable, and tell me which canonical indicators its OHLCV columns map to. ccxt is pip-installable and keyless for public market data — use the Binance exchange's fetch_ohlcv as the representative call.",
-  "assertions": []
-}

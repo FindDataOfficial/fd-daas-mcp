@@ -1,0 +1,59 @@
+[project]
+name = "fd-daas-mcp"
+version = "0.1.0"
+description = "Consolidated DAAS MCP server + CLI - hosts alerts/cron/composite/daas/dashboard/leader/pdf/cnreport/massive/scrapling/firecrawl tools behind one stdio server and one Click CLI"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "FindDataOfficial" }]
+dependencies = [
+    "fastmcp>=3.4.2",
+    "click>=8.0",
+    "pandas>=1.0",
+    "sqlalchemy>=2.0",
+    "python-dotenv>=1.0",
+    "apscheduler>=3.11.2",
+    "mcp-models",
+]
+
+[project.optional-dependencies]
+# CrewAI powers leader's DataCrew router (ask_data_crew) + specialist agents.
+# Falls back to a deterministic direct router when absent.
+crew = ["crewai", "litellm"]
+# akshare is imported lazily by daas source modules; install for live A-share fetches.
+akshare = ["akshare>=1.13"]
+# elasticsearch powers cnreport ES store/search tools.
+es = ["elasticsearch>=8.0"]
+# scrapling powers the scrapling group (fetch/stealthy_fetch/find_scripts/run_script).
+# Optional - the registry skips the group when absent.
+scrapling = ["scrapling[fetchers]>=0.4.7"]
+# firecrawl powers the firecrawl group (scrape/crawl/map/search via firecrawl.dev).
+# Optional - the registry skips the group when absent.
+firecrawl = ["firecrawl-py>=1.0"]
+# cnreport powers the cnreport group (CNINFO company API + PDF/AI/ES tools), folded
+# from mcp/cnreport-mcp. Deps are lazy-imported so the group is always-on; install
+# for full PDF/ES/financials functionality.
+cnreport = ["pypdf", "elasticsearch>=8.0", "akshare>=1.13", "jsonschema"]
+# massive powers the massive group (search_endpoints/call_api/query_data), folded
+# in-process from the mcp_massive package. NOTE: massive-mcp is not yet re-folded
+# (lost with the prior fd-daas-mcp); the extra is commented out to avoid blocking
+# `uv sync` on the git dep. Uncomment when massive-mcp/ is restored.
+# massive = ["mcp_massive @ git+https://github.com/massive-com/mcp_massive@v0.10.0"]
+# pageindex powers the pdf group (PageIndex hosted vector DB for PDF RAG).
+# The SDK is imported lazily, so the pdf group is always-on without this extra.
+pdf = ["pageindex>=0.2.8"]
+# REPL history/autocomplete.
+repl = ["prompt_toolkit>=3.0"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+fd-daas-mcp = "cli_anything.fd_daas_mcp.cli:cli"
+
+[tool.setuptools.packages.find]
+include = ["cli_anything.*"]
+
+[tool.uv.sources]
+mcp-models = { path = "models", editable = true }
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
