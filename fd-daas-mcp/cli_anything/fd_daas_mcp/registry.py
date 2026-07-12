@@ -34,10 +34,17 @@ SOURCES: dict[str, dict[str, Any]] = {
     "daas":      {"dir": "daas-mcp",      "inline": False},
     "dashboard": {"dir": "dashboard-mcp", "inline": True},
     "leader":    {"dir": "leader-mcp",    "inline": False},
-    # pdf group: not yet re-folded (lost with the prior fd-daas-mcp); re-add when
-    # pdf-mcp/ is restored from the archived 2026-07-12-add-pdf-pageindex spec.
-    # "pdf":       {"dir": "pdf-mcp",       "inline": True},
-    # Optional groups - skipped (logged) by build() when their dep is absent.
+    # To add an OPTIONAL group, give it ``"optional": True`` and ``"dep": "<import>"``;
+    # build() loads it only when the dep imports, else records it as
+    # skipped_optional (INFO, not a failure). Example:
+    #   "pdf": {"dir": "pdf-mcp", "inline": True, "optional": True, "dep": "pageindex"},
+    #
+    # Dropped groups - lost with the prior fd-daas-mcp and not tracked for
+    # restore here. Each has an archived openspec spec to restore from:
+    #   pdf       -> archive/2026-07-12-add-pdf-pageindex
+    #   scrapling -> archive/2026-07-12-fold-scrapling-add-firecrawl
+    #   firecrawl -> archive/2026-07-12-fold-scrapling-add-firecrawl
+    #   massive   -> archive/2026-07-06-add-massive-datasources
 }
 
 _GROUP_DIR_SEGMENTS = tuple(f"/{s['dir']}/" for s in SOURCES.values())
@@ -155,7 +162,7 @@ def _local_modules(import_map: list[str]) -> list[str]:
     return out
 
 
-def load_source(group: str) -> list[tuple[str, str, Callable]]:
+def load_source(group: str) -> tuple[list[tuple[str, str, Callable]], list[str]]:
     spec = SOURCES[group]
     src_dir = FD_HOME / spec["dir"]
     server_path = src_dir / "server.py"
@@ -196,17 +203,27 @@ def load_source(group: str) -> list[tuple[str, str, Callable]]:
         if missing:
             logger.warning("%s: %d tool(s) unresolvable: %s",
                            group, len(missing), ", ".join(missing[:10]))
-        return out
+        return out, missing
     finally:
         sys.path.pop(0)
         _evict_source_modules()
 
 
 _BUILD_CACHE: list[tuple[str, str, Callable]] | None = None
+_BUILD_REPORT: dict[str, list] | None = None
+
+
+def _can_import(modname: str) -> bool:
+    """Best-effort import check for optional-group dependency gating."""
+    try:
+        __import__(modname)
+        return True
+    except Exception:
+        return False
 
 
 def build() -> list[tuple[str, str, Callable]]:
-    global _BUILD_CACHE
+    global _BUILD_CACHE, _BUILD_REPORT
     if _BUILD_CACHE is not None:
         return _BUILD_CACHE
 
@@ -214,21 +231,71 @@ def build() -> list[tuple[str, str, Callable]]:
     if str(models_dir) not in sys.path:
         sys.path.insert(0, str(models_dir))
 
+    report: dict[str, list] = {"registered": [], "failed": [], "skipped_optional": []}
     all_tools: list[tuple[str, str, Callable]] = []
     for group in SOURCES:
+        spec = SOURCES[group]
+        # Optional groups load only when their backing dep is importable; an
+        # absent dep is recorded as skipped_optional (INFO), not a failure.
+        if spec.get("optional"):
+            dep = spec.get("dep")
+            if dep and not _can_import(dep):
+                report["skipped_optional"].append((group, f"dep {dep!r} not importable"))
+                logger.info("optional source %s skipped (dep %s absent)", group, dep)
+                continue
         try:
-            all_tools.extend(load_source(group))
+            tools, missing = load_source(group)
         except Exception as e:  # noqa: BLE001
+            report["failed"].append((group, "*", f"load error: {type(e).__name__}: {e}"))
             logger.warning("source %s failed to load (skipped): %s", group, e)
+            continue
+        for g, name, fn in tools:
+            all_tools.append((g, name, fn))
+            report["registered"].append((g, name))
+        for name in missing:
+            report["failed"].append((group, name, "unresolvable at load"))
 
-    logger.info("registry: %d tools across %d groups", len(all_tools), len(SOURCES))
+    logger.info("registry: %d tools across %d sources (failed=%d, skipped_optional=%d)",
+                len(all_tools), len(SOURCES),
+                len(report["failed"]), len(report["skipped_optional"]))
     _BUILD_CACHE = all_tools
+    _BUILD_REPORT = report
     return all_tools
 
 
+def build_report() -> dict[str, list]:
+    """Structured registration report: registered / failed / skipped_optional.
+
+    Populated by ``build()`` (load stage) and ``note_failed()`` (server
+    ``app.tool`` stage). ``registered`` lists tools that loaded; ``failed`` lists
+    load-time and app.tool-registration failures as ``(group, name, error)``;
+    ``skipped_optional`` lists optional groups whose dependency was absent.
+    """
+    if _BUILD_REPORT is None:
+        build()
+    return _BUILD_REPORT  # type: ignore[return-value]
+
+
+def note_failed(group: str, name: str, error: str) -> None:
+    """Record a tool that failed to register with the FastMCP app (server-side).
+
+    Called from ``server.py``'s per-tool registration loop so an app.tool failure
+    is surfaced in the report rather than only logged.
+    """
+    if _BUILD_REPORT is None:
+        build()
+    _BUILD_REPORT["failed"].append((group, name, f"app.tool: {error}"))
+
+
+def core_groups() -> list[str]:
+    """Groups that are not optional - a failure here fails the selfcheck loudly."""
+    return [g for g, s in SOURCES.items() if not s.get("optional")]
+
+
 def reset_cache() -> None:
-    global _BUILD_CACHE
+    global _BUILD_CACHE, _BUILD_REPORT
     _BUILD_CACHE = None
+    _BUILD_REPORT = None
 
 
 def namespaced(group: str, tool_name: str) -> str:

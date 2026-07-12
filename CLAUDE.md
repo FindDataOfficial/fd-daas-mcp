@@ -4,7 +4,7 @@ Fork of [HKUDS/CLI-Anything](https://github.com/HKUDS/CLI-Anything). The `CLI-An
 
 ## Architecture (skill + sqlite)
 
-Data fetch is **skill-driven**: skills call Python data libraries (`akshare`, `yfinance`, `edgar`, `edinet-tools`, `dartlab`, `world_bank_data`, `ckanapi`) directly and read/write `daas.db` via `sqlite3`. **There are no MCP servers and no `fd-*` CLIs.** `.mcp.json` is empty.
+Data fetch is **skill-driven**: skills call Python data libraries (`akshare`, `yfinance`, `edgar`, `edinet-tools`, `dartlab`, `world_bank_data`, `ckanapi`) directly and read/write `daas.db` via `sqlite3`. The consolidated **`fd-daas-mcp`** MCP server is the sole entry in repo-root `.mcp.json` - it hosts the `alerts`/`cron`/`composite`/`daas`/`dashboard`/`leader` tool groups (170 tools) behind one stdio server and one `fd-daas-mcp` Click CLI. The thin consolidation layer is `fd-daas-mcp/cli_anything/fd_daas_mcp/` (`server.py`/`registry.py`/`cli.py`/`selfcheck.py`); each group's tool code lives in-package at `fd-daas-mcp/<group>-mcp/`. Server and CLI both consume `registry.build()` so the surfaces cannot drift. Launch: `fd-daas-mcp/bin/fd-daas-mcp-server`; tests: `fd-daas-mcp/.venv/bin/python -m pytest fd-daas-mcp/tests`; selfcheck: `fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.selfcheck`.
 
 The replacement layer lives in `.claude/skills/skill-based-data-fetch/`:
 - `SKILL.md` - the resolve -> fetch -> persist workflow.
@@ -52,7 +52,7 @@ Query it directly: `sqlite3 mcp/daas.db "SELECT ..."` (from repo root). `PRAGMA 
 - `fd-daas-indicators-collection-creator` - indicator collections + CSV/md export.
 - `fd-skill-creator`, `openspec-*` - infra/workflow skills.
 
-**Removed** (do not reference): `fd-daas-mcp`, all `fd-*` CLI harnesses (`fd-akshare`/`fd-yfinance`/`fd-dartlab`/`fd-edgar`/`fd-edinet`/`fd-world`), `fd-daas-workflow-creator`, `fd-daas-scraw-scrapling`, `fd-daas-scrapling-scraw-creator`, `fd-daas-cli-datasource-entities-builder`, and every `mcp__*` tool. There is **no cron scheduler, no alert engine, no CrewAI workflow layer, no composite/pipeline MCP** - refresh is manual (re-run the fetch+upsert).
+**Removed** (do not reference): all `fd-*` CLI harnesses (`fd-akshare`/`fd-yfinance`/`fd-dartlab`/`fd-edgar`/`fd-edinet`/`fd-world`), `fd-daas-workflow-creator`, `fd-daas-scraw-scrapling`, `fd-daas-scrapling-scraw-creator`, `fd-daas-cli-datasource-entities-builder`, and the per-source `mcp__*` tools. The cron scheduler, alert engine, CrewAI workflow layer (leader), and composite/pipeline MCPs are **not removed** - they are folded into `fd-daas-mcp` as `cron-mcp`/`alerts-mcp`/`leader-mcp`/`composite-mcp` and register under `<group>_<tool>` on the consolidated server. The `pdf`/`scrapling`/`firecrawl`/`massive` groups were lost with the prior `fd-daas-mcp` and are dropped (documented in `registry.py` with archived-restore-spec pointers). For skill-driven fetches, refresh is manual (re-run the fetch+upsert).
 
 ## Construction Docs
 
