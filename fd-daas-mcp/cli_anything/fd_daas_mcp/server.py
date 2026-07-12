@@ -25,13 +25,15 @@ logger = logging.getLogger("fd-daas-mcp")
 app = FastMCP(name="fd-daas-mcp")
 
 _tools = registry.build()
+_registered = 0
 for _group, _name, _func in _tools:
     try:
-        app.add_tool(_func, name=registry.namespaced(_group, _name))
-    except Exception as e:  # noqa: BLE001
+        app.tool(name=registry.namespaced(_group, _name))(_func)
+        _registered += 1
+    except Exception as e:  # noqa: BLE001 - skip a tool that fails to register, keep going
         logger.warning("failed to register %s_%s: %s", _group, _name, e)
 
-logger.info("fd-daas-mcp server: registered %d tools", len(_tools))
+logger.info("fd-daas-mcp server: registered %d/%d tools", _registered, len(_tools))
 
 
 def main() -> None:
