@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cli_anything.daas.sources.base import SourceAdapter
+from cli_anything.world.sources.base import SourceAdapter
 
 # Curated NBS macro indicators
 CNSTATS_FUNCTIONS = [
@@ -161,7 +161,7 @@ class CNStatsAdapter(SourceAdapter):
           cnstats_industrial_output -> macro_china_industrial_production
           etc.
         """
-        from cli_anything.daas.core.exceptions import SourceUnavailableError, FunctionNotFoundError
+        from cli_anything.world.core.exceptions import SourceUnavailableError, FunctionNotFoundError
 
         if not self.is_available():
             raise SourceUnavailableError("cnstats", "Install: pip install akshare")

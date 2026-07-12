@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from cli_anything.daas.sources.config import load_sources, get_adapter
-from cli_anything.daas.core.exceptions import (
+from cli_anything.world.sources.config import load_sources, get_adapter
+from cli_anything.world.core.exceptions import (
     FunctionNotFoundError,
     SourceUnavailableError,
     ParameterError,

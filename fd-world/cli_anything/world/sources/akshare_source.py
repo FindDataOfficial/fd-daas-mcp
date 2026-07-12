@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cli_anything.daas.sources.base import SourceAdapter
+from cli_anything.world.sources.base import SourceAdapter
 
 
 class AKShareAdapter(SourceAdapter):
@@ -94,7 +94,7 @@ class AKShareAdapter(SourceAdapter):
 
         Strips 'akshare_' prefix from function name before calling akshare.
         """
-        from cli_anything.daas.core.exceptions import SourceUnavailableError, FunctionNotFoundError
+        from cli_anything.world.core.exceptions import SourceUnavailableError, FunctionNotFoundError
 
         if not self.is_available():
             raise SourceUnavailableError("akshare", "Install: pip install akshare")

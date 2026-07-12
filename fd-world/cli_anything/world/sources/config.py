@@ -123,11 +123,11 @@ def _load_from_yaml(path: str) -> list[SourceConfig]:
 
 def get_adapter(source_name: str):
     """Get a source adapter instance by name. Lazy imports to avoid loading all deps."""
-    from cli_anything.daas.sources.akshare_source import AKShareAdapter
-    from cli_anything.daas.sources.worldbank_source import WorldBankAdapter
-    from cli_anything.daas.sources.ckan_source import CKANAdapter
-    from cli_anything.daas.sources.cnstats_source import CNStatsAdapter
-    from cli_anything.daas.sources.wbdata_source import WbDataAdapter
+    from cli_anything.world.sources.akshare_source import AKShareAdapter
+    from cli_anything.world.sources.worldbank_source import WorldBankAdapter
+    from cli_anything.world.sources.ckan_source import CKANAdapter
+    from cli_anything.world.sources.cnstats_source import CNStatsAdapter
+    from cli_anything.world.sources.wbdata_source import WbDataAdapter
 
     adapters = {
         "akshare": AKShareAdapter,

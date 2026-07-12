@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cli_anything.daas.sources.base import SourceAdapter
+from cli_anything.world.sources.base import SourceAdapter
 
 # Curated key indicators — available even without wbgapi installed
 KEY_INDICATORS = [
