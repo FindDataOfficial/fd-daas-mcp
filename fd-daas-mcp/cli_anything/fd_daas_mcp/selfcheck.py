@@ -35,7 +35,7 @@ if _u.startswith("sqlite:///") and not _u.startswith("sqlite:////"):
         os.environ["DAAS_DATABASE_URL"] = f"sqlite:///{_REPO}/{_rel}"
 
 CORE = {"alerts", "cron", "composite", "daas", "dashboard", "leader"}
-OPTIONAL = {"pdf", "scrapling", "firecrawl", "cnreport", "massive"}
+OPTIONAL = {"pdf", "scrapling", "firecrawl", "massive"}
 EXPECTED_COLLISIONS = {
     "search_functions", "run_rule",
     "list_datasources", "list_categories", "get_function_detail",
@@ -49,7 +49,7 @@ def main() -> int:
     counts = Counter(g for g, _, _ in tools)
     print(f"[1] registered tools: {len(tools)}")
     for g in ["alerts", "cron", "composite", "daas", "dashboard", "leader",
-              "pdf", "scrapling", "firecrawl", "cnreport", "massive"]:
+              "pdf", "scrapling", "firecrawl", "massive"]:
         n = counts.get(g, 0)
         suffix = ""
         if g in OPTIONAL:
