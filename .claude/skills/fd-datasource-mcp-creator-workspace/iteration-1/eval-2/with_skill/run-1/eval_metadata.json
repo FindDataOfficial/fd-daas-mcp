@@ -1,6 +1,0 @@
-{
-  "eval_id": 2,
-  "eval_name": "vocabulary-extension-commodities",
-  "prompt": "Pre-extend the canonical indicator vocabulary for an upcoming commodities futures source. The source's tables will have columns settle_price, open_interest, and warehouse_stocks — none are in the canonical vocabulary yet. Add them to the vocabulary, then verify the mapping resolves by registering a throwaway source + a function with those three columns and running the matcher against it.",
-  "assertions": []
-}

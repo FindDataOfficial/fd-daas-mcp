@@ -1,9 +1,0 @@
-# Database URL for {{ENV_PREFIX}} MCP
-# SQLite (default): sqlite:///../daas.db
-{{ENV_PREFIX}}_DATABASE_URL=sqlite:///../daas.db
-
-{{SOURCE_SPECIFIC_CONFIG}}
-
-# HTTP/HTTPS proxy (optional)
-# HTTP_PROXY=http://proxy.example.com:8080
-# HTTPS_PROXY=http://proxy.example.com:8080

@@ -1,8 +1,0 @@
-# ============================================
-# Single Provider Entry Template
-# Paste only this block when defining one provider.
-# ============================================
-
-anthropic:
-  api_key_env: ANTHROPIC_API_KEY
-  base_url: https://api.anthropic.com
