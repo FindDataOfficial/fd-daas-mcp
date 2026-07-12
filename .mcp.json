@@ -1,3 +1,10 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "fd-daas-mcp": {
+      "type": "stdio",
+      "command": "/Users/chengsishi/code/cli-anything/fd-daas-mcp/.venv/bin/python",
+      "args": ["-m", "cli_anything.fd_daas_mcp.server"],
+      "cwd": "/Users/chengsishi/code/cli-anything/fd-daas-mcp"
+    }
+  }
 }
