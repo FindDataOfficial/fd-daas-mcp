@@ -5,8 +5,13 @@ No network, no LLM. Verifies:
   2. the known collisions are namespaced (present as bare names in 2+ groups)
   3. colliding leaf modules (registry_service, database) resolve to distinct files
   4. no APScheduler thread started (cron suppression worked)
+  5. registration report: no core-group tool in ``failed``; optional-skipped listed
 
-Run: ``uv run --directory fd-daas-mcp python -m cli_anything.fd_daas_mcp.selfcheck``
+The invariant logic lives in :func:`run_invariants` so it can be invoked both
+from the ``__main__`` CLI and from ``tests/test_selfcheck.py`` - same contract,
+no drift.
+
+Run: ``fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.selfcheck``
 """
 from __future__ import annotations
 
@@ -15,6 +20,7 @@ import sys
 import threading
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 from cli_anything.fd_daas_mcp import registry
 
@@ -35,54 +41,101 @@ if _u.startswith("sqlite:///") and not _u.startswith("sqlite:////"):
         os.environ["DAAS_DATABASE_URL"] = f"sqlite:///{_REPO}/{_rel}"
 
 CORE = {"alerts", "cron", "composite", "daas", "dashboard", "leader"}
-OPTIONAL = {"pdf", "scrapling", "firecrawl", "massive"}
+# Groups documented as dropped (not tracked for restore). See registry.py.
+DROPPED = {
+    "pdf": "2026-07-12-add-pdf-pageindex",
+    "scrapling": "2026-07-12-fold-scrapling-add-firecrawl",
+    "firecrawl": "2026-07-12-fold-scrapling-add-firecrawl",
+    "massive": "2026-07-06-add-massive-datasources",
+}
 EXPECTED_COLLISIONS = {
     "search_functions", "run_rule",
     "list_datasources", "list_categories", "get_function_detail",
 }
 
 
-def main() -> int:
+def run_invariants() -> dict[str, Any]:
+    """Run every selfcheck invariant and return a structured result.
+
+    Returns ``{"ok": bool, "checks": [...], "report": {...},
+    "tool_count": int, "group_counts": {...}}`` where each check is
+    ``{"name", "ok", "detail"}``. ``ok`` is True only if every check passed.
+    """
     registry.reset_cache()
     tools = registry.build()
-
     counts = Counter(g for g, _, _ in tools)
-    print(f"[1] registered tools: {len(tools)}")
-    for g in ["alerts", "cron", "composite", "daas", "dashboard", "leader",
-              "pdf", "scrapling", "firecrawl", "massive"]:
-        n = counts.get(g, 0)
-        suffix = ""
-        if g in OPTIONAL:
-            suffix = f" (optional, {'installed' if n else 'absent'})"
-        print(f"    {g}: {n}{suffix}")
+    rep = registry.build_report()
 
+    checks: list[dict[str, Any]] = []
+
+    # [1] tool count + core groups present
     missing_core = CORE - set(counts.keys())
-    assert not missing_core, f"missing core groups: {missing_core}"
-    assert len(tools) >= 170, f"too few tools: {len(tools)} (expected >= 170, 6-core baseline)"
+    ok1 = (not missing_core) and len(tools) >= 170
+    checks.append({
+        "name": "tool-count",
+        "ok": ok1,
+        "detail": f"{len(tools)} tools; groups={dict(counts)}; missing_core={sorted(missing_core)}",
+    })
 
-    print("[2] collisions")
+    # [2] collisions namespaced
     coll = registry.collisions()
-    print(f"    {len(coll)} collisions: {sorted(coll.keys())}")
     missing_coll = EXPECTED_COLLISIONS - set(coll.keys())
-    assert not missing_coll, f"missing expected collisions: {missing_coll}"
+    checks.append({
+        "name": "collisions",
+        "ok": not missing_coll,
+        "detail": f"{len(coll)} collisions={sorted(coll.keys())}; missing={sorted(missing_coll)}",
+    })
 
-    print("[3] leaf-module isolation")
+    # [3] leaf-module isolation
     leaf = registry.leaf_isolation_check()
+    leaf_ok = True
+    leaf_detail: list[str] = []
     for name, files in leaf.items():
         paths = set(files.values())
         ok = len(paths) == len(files) and len(paths) >= 2
-        print(f"    {name}: {len(paths)} distinct file(s) ({'OK' if ok else 'FAIL'})")
-        assert ok, f"{name} not isolated: {files}"
+        leaf_ok = leaf_ok and ok
+        leaf_detail.append(f"{name}: {len(paths)} distinct ({'OK' if ok else 'FAIL'})")
+    checks.append({"name": "leaf-isolation", "ok": leaf_ok, "detail": "; ".join(leaf_detail)})
 
-    print("[4] scheduler threads after load")
+    # [4] no scheduler thread after load (cron suppression)
     threads = [t.name for t in threading.enumerate()
                if "apscheduler" in t.name.lower() or "scheduler" in t.name.lower()]
-    print(f"    {threads or 'none'}")
-    assert not threads, f"scheduler thread started: {threads}"
+    checks.append({
+        "name": "no-scheduler-thread",
+        "ok": not threads,
+        "detail": f"{threads or 'none'}",
+    })
 
-    print(f"\n[5] total: {len(tools)} tools across {len(counts)} groups")
-    print("\n=== SELF-CHECK PASSED ===")
-    return 0
+    # [5] registration report: no core-group failure; show skipped_optional
+    core = set(registry.core_groups())
+    core_failures = [f for f in rep["failed"] if f[0] in core]
+    checks.append({
+        "name": "report-no-core-failure",
+        "ok": not core_failures,
+        "detail": (f"failed={rep['failed']} core_failures={core_failures} "
+                   f"skipped_optional={rep['skipped_optional']}"),
+    })
+
+    return {
+        "ok": all(c["ok"] for c in checks),
+        "checks": checks,
+        "report": rep,
+        "tool_count": len(tools),
+        "group_counts": dict(counts),
+    }
+
+
+def main() -> int:
+    result = run_invariants()
+    for c in result["checks"]:
+        flag = "OK" if c["ok"] else "FAIL"
+        print(f"[{flag}] {c['name']}: {c['detail']}")
+    print(f"\ntotal: {result['tool_count']} tools across {len(result['group_counts'])} groups")
+    if result["ok"]:
+        print("\n=== SELF-CHECK PASSED ===")
+        return 0
+    print("\n=== SELF-CHECK FAILED ===")
+    return 1
 
 
 if __name__ == "__main__":

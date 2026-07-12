@@ -1,7 +1,7 @@
 [project]
 name = "fd-daas-mcp"
 version = "0.1.0"
-description = "Consolidated DAAS MCP server + CLI - hosts alerts/cron/composite/daas/dashboard/leader/pdf/cnreport/massive/scrapling/firecrawl tools behind one stdio server and one Click CLI"
+description = "Consolidated DAAS MCP server + CLI - hosts alerts/cron/composite/daas/dashboard/leader tools behind one stdio server and one Click CLI"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "FindDataOfficial" }]
@@ -23,20 +23,12 @@ crew = ["crewai", "litellm"]
 akshare = ["akshare>=1.13"]
 # elasticsearch powers cnreport ES store/search tools.
 es = ["elasticsearch>=8.0"]
-# scrapling powers the scrapling group (fetch/stealthy_fetch/find_scripts/run_script).
-# Optional - the registry skips the group when absent.
-scrapling = ["scrapling[fetchers]>=0.4.7"]
-# firecrawl powers the firecrawl group (scrape/crawl/map/search via firecrawl.dev).
-# Optional - the registry skips the group when absent.
-firecrawl = ["firecrawl-py>=1.0"]
-# massive powers the massive group (search_endpoints/call_api/query_data), folded
-# in-process from the mcp_massive package. NOTE: massive-mcp is not yet re-folded
-# (lost with the prior fd-daas-mcp); the extra is commented out to avoid blocking
-# `uv sync` on the git dep. Uncomment when massive-mcp/ is restored.
-# massive = ["mcp_massive @ git+https://github.com/massive-com/mcp_massive@v0.10.0"]
-# pageindex powers the pdf group (PageIndex hosted vector DB for PDF RAG).
-# The SDK is imported lazily, so the pdf group is always-on without this extra.
-pdf = ["pageindex>=0.2.8"]
+# Dropped optional groups (lost with the prior fd-daas-mcp); their extras are
+# removed to avoid advertising unmaintained deps. Restore from the archived
+# openspec specs listed in cli_anything/fd_daas_mcp/registry.py:
+#   scrapling, firecrawl -> archive/2026-07-12-fold-scrapling-add-firecrawl
+#   pdf                  -> archive/2026-07-12-add-pdf-pageindex
+#   massive              -> archive/2026-07-06-add-massive-datasources
 # REPL history/autocomplete.
 repl = ["prompt_toolkit>=3.0"]
 dev = ["pytest>=8.0"]
@@ -49,6 +41,14 @@ include = ["cli_anything.*"]
 
 [tool.uv.sources]
 mcp-models = { path = "models", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# The .venv leaks micromamba site-packages whose logfire pytest plugin crashes
+# on import (opentelemetry._tail_sampling). `-p no:X` is a no-op when the plugin
+# isn't registered, so this is safe in a clean venv too.
+addopts = "-p no:logfire -p no:pytest_logfire"
 
 [build-system]
 requires = ["setuptools>=68.0"]
