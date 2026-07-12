@@ -38,9 +38,6 @@ SOURCES: dict[str, dict[str, Any]] = {
     # pdf-mcp/ is restored from the archived 2026-07-12-add-pdf-pageindex spec.
     # "pdf":       {"dir": "pdf-mcp",       "inline": True},
     # Optional groups - skipped (logged) by build() when their dep is absent.
-    "scrapling": {"dir": "scrapling-mcp", "inline": True},
-    "firecrawl": {"dir": "firecrawl-mcp", "inline": True},
-    "massive":   {"dir": "massive-mcp", "inline": True},
 }
 
 _GROUP_DIR_SEGMENTS = tuple(f"/{s['dir']}/" for s in SOURCES.values())
