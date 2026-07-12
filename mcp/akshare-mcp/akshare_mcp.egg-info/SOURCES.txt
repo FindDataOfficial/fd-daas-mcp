@@ -1,7 +1,0 @@
-pyproject.toml
-server.py
-akshare_mcp.egg-info/PKG-INFO
-akshare_mcp.egg-info/SOURCES.txt
-akshare_mcp.egg-info/dependency_links.txt
-akshare_mcp.egg-info/requires.txt
-akshare_mcp.egg-info/top_level.txt
