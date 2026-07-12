@@ -1,9 +1,0 @@
-Metadata-Version: 2.4
-Name: cnstats-mcp
-Version: 0.1.0
-Summary: MCP Server for Chinese National Statistics Data
-Requires-Python: >=3.10
-Requires-Dist: fastmcp>=2.0
-Requires-Dist: sqlalchemy>=2.0
-Requires-Dist: pandas>=1.0
-Requires-Dist: akshare>=1.17.0
