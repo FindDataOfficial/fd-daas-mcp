@@ -34,17 +34,21 @@ SOURCES: dict[str, dict[str, Any]] = {
     "daas":      {"dir": "daas-mcp",      "inline": False},
     "dashboard": {"dir": "dashboard-mcp", "inline": True},
     "leader":    {"dir": "leader-mcp",    "inline": False},
-    # To add an OPTIONAL group, give it ``"optional": True`` and ``"dep": "<import>"``;
-    # build() loads it only when the dep imports, else records it as
-    # skipped_optional (INFO, not a failure). Example:
-    #   "pdf": {"dir": "pdf-mcp", "inline": True, "optional": True, "dep": "pageindex"},
+    # Optional groups: build() loads them only when ``dep`` imports, else records
+    # the group as skipped_optional (INFO, not a failure). The pdf group is local
+    # PDF/text vector search (sentence-transformers + sqlite-vec + pdfplumber);
+    # gated on sqlite_vec (the truly-absent dep; sentence-transformers is already
+    # in the venv transitively, so gating on it would load-but-error). See
+    # openspec/changes/add-pdf-vector-search.
+    "pdf":       {"dir": "pdf-mcp",       "inline": False, "optional": True, "dep": "sqlite_vec"},
+    # To add another OPTIONAL group, give it ``"optional": True`` and ``"dep": "<import>"``.
     #
     # Dropped groups - lost with the prior fd-daas-mcp and not tracked for
     # restore here. Each has an archived openspec spec to restore from:
-    #   pdf       -> archive/2026-07-12-add-pdf-pageindex
-    #   scrapling -> archive/2026-07-12-fold-scrapling-add-firecrawl
-    #   firecrawl -> archive/2026-07-12-fold-scrapling-add-firecrawl
-    #   massive   -> archive/2026-07-06-add-massive-datasources
+    #   scrapling, firecrawl -> archive/2026-07-12-fold-scrapling-add-firecrawl
+    #   massive              -> archive/2026-07-06-add-massive-datasources
+    # (pdf was restored - see the `pdf` SOURCES entry above + the `pdf` extra in
+    # pyproject.toml; no longer listed as dropped.)
 }
 
 _GROUP_DIR_SEGMENTS = tuple(f"/{s['dir']}/" for s in SOURCES.values())

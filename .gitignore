@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 venv/
 *.db
+!/daas.db
 
 # Secrets / env files (keep .env.example templates tracked)
 .env
@@ -25,9 +26,8 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Local-only project tooling (openspec specs + Claude Code agent skills)
+# Local-only project tooling (openspec specs)
 openspec/
-.claude/skills/
 
 # Data artifacts
 *.csv

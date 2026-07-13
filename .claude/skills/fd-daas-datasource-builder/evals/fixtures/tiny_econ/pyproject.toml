@@ -1,0 +1,13 @@
+[project]
+name = "tiny-econ"
+version = "0.1.0"
+description = "Tiny fake economic data library - fixture for fd-daas-datasource-builder evals"
+requires-python = ">=3.10"
+dependencies = ["requests", "pandas", "click"]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["tiny_econ*"]

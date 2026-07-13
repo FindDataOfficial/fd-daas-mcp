@@ -1,0 +1,316 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-07-13",
+  "generated_by": "no-skill-baseline (AST + docstring analysis, no execution)",
+  "analysis_method": "AST parse of tiny_econ/api.py + docstring mining; daas.db read via sqlite3 for entity/indicator/source matching. The fixture's api.example.com endpoints are unreachable by design and were NEVER executed.",
+  "source": {
+    "name": "tiny_econ",
+    "label": "Tiny Econ (fixture)",
+    "description": "Tiny fake economic-data library exposing CPI, GDP, country-list, and market-holiday fetchers. Fixture for fd-daas-datasource-builder evals. Endpoints (api.example.com) are intentionally unreachable; structure inferred from docstrings only.",
+    "url": "https://api.example.com",
+    "score": 0.65,
+    "enabled": true,
+    "category": "macro_economics",
+    "confidence": {
+      "score": 0.65,
+      "reasoning": "Structural confidence is high: every public function has a docstring that explicitly lists parameters (with types/defaults) and return columns, and the pyproject declares deps (requests/pandas/click). However the API is a fake unreachable fixture, so the declared output columns cannot be verified against real responses, return shapes are inferred (pd.DataFrame(r.json()) assumes a tabular JSON array; list_countries returns r.json() directly as a list), and no live sample exists. Net: 0.65 - good schema, unverifiable data."
+    }
+  },
+  "functions": [
+    {
+      "name": "get_cpi_series",
+      "label": "CPI Year-over-Year Series (Monthly)",
+      "description": "Fetch CPI year-over-year (同比) series for a country, monthly granularity, over a year range. Returns a pandas DataFrame.",
+      "category": "macro_economics/cpi",
+      "frequency": "monthly",
+      "output_type": "dataframe",
+      "data_source_provenance": {
+        "endpoint": "https://api.example.com/cpi",
+        "method": "GET",
+        "query_params": {"country": "<ISO alpha-2>", "start": "<start_year>", "end": "<end_year>"},
+        "transport": "requests",
+        "verified_live": false
+      },
+      "has_existing_cli": false,
+      "cli_wrapped": true,
+      "parameters": [
+        {"name": "country", "type": "string", "required": false, "default": "CN", "description": "ISO alpha-2 country code, e.g. CN / US."},
+        {"name": "start_year", "type": "integer", "required": false, "default": 2010, "description": "Start year (inclusive)."},
+        {"name": "end_year", "type": "integer", "required": false, "default": 2024, "description": "End year (inclusive)."}
+      ],
+      "output_columns": [
+        {"name": "date", "type": "string", "label": "Date", "description": "Monthly period timestamp (YYYY-MM inferred).", "nullable": false, "role": "date_key"},
+        {"name": "cpi_yoy", "type": "float", "label": "CPI YoY", "description": "CPI year-over-year value (percent or index - unit unverifiable offline).", "nullable": true, "role": "metric"},
+        {"name": "country", "type": "string", "label": "Country", "description": "ISO alpha-2 country code echoed back.", "nullable": false, "role": "dimension"}
+      ],
+      "confidence": {
+        "score": 0.7,
+        "reasoning": "Docstring explicitly lists columns (date, cpi_yoy, country) and typed params with defaults. Monthly frequency stated in docstring. Uncertainty: pd.DataFrame(r.json()) presumes a list-of-records JSON; if the API returns a different shape the columns could differ. cpi_yoy unit (percent vs index) is unverifiable offline."
+      },
+      "entities": {
+        "entity_type": "country",
+        "identifier_shape": "ISO 3166-1 alpha-2 (e.g. CN, US)",
+        "matched_in_daas": true,
+        "matching_entity_ids": [
+          {"code": "CN", "daas_entity_id": 1, "name": "China"},
+          {"code": "US", "daas_entity_id": 2, "name": "United States"}
+        ],
+        "notes": "Default country=CN matches daas entity id=1; US matches id=2. daas holds 60 country entities including the common alpha-2 codes (CN, US, JP, HK, GB, DE, FR, ...). All alpha-2 codes the function accepts should match an existing country entity; a full match cannot be confirmed without executing list_countries()."
+      },
+      "proposed_indicators": [
+        {
+          "rule_name": "tiny_econ_cpi_sma12_cpi_yoy",
+          "indicator_name": "sma12_cpi_yoy",
+          "op": "sma",
+          "source_table": "scraw_tiny_econ_cpi",
+          "date_column": "date",
+          "value_column": "cpi_yoy",
+          "params": {"window": 12},
+          "category": "new",
+          "concept_exists_in_daas": true,
+          "concept_note": "CPI concept exists in daas (massive source: level_cpi, pct_change_cpi, sma12_cpi, zscore12_cpi on the `cpi` level column). cpi_yoy (year-over-year variant) has no indicator in daas; the raw column cpi_year_over_year exists in scraw_massive_inflation but is not targeted by any indicator_rule. This is a new indicator on an existing concept family.",
+          "existing_match": null
+        },
+        {
+          "rule_name": "tiny_econ_cpi_pct_change_cpi_yoy",
+          "indicator_name": "pct_change_cpi_yoy",
+          "op": "pct_change",
+          "source_table": "scraw_tiny_econ_cpi",
+          "date_column": "date",
+          "value_column": "cpi_yoy",
+          "params": {},
+          "category": "new",
+          "concept_exists_in_daas": true,
+          "concept_note": "pct_change_cpi exists (on `cpi` level). pct_change_cpi_yoy (on the YoY series) does not exist -> new.",
+          "existing_match": null
+        },
+        {
+          "rule_name": "tiny_econ_cpi_zscore12_cpi_yoy",
+          "indicator_name": "zscore12_cpi_yoy",
+          "op": "zscore",
+          "source_table": "scraw_tiny_econ_cpi",
+          "date_column": "date",
+          "value_column": "cpi_yoy",
+          "params": {"window": 12},
+          "category": "new",
+          "concept_exists_in_daas": true,
+          "concept_note": "zscore12_cpi exists (on `cpi` level). zscore12_cpi_yoy does not -> new.",
+          "existing_match": null
+        }
+      ]
+    },
+    {
+      "name": "fetch_gdp_quarterly",
+      "label": "Quarterly GDP (Current USD + YoY Growth)",
+      "description": "Download quarterly GDP data for a country: current USD level and year-over-year growth. Returns a pandas DataFrame.",
+      "category": "macro_economics/gdp",
+      "frequency": "quarterly",
+      "output_type": "dataframe",
+      "data_source_provenance": {
+        "endpoint": "https://api.example.com/gdp",
+        "method": "GET",
+        "query_params": {"country": "<ISO alpha-2>", "freq": "Q"},
+        "transport": "requests",
+        "verified_live": false
+      },
+      "has_existing_cli": false,
+      "cli_wrapped": true,
+      "parameters": [
+        {"name": "country", "type": "string", "required": false, "default": "US", "description": "ISO alpha-2 country code."}
+      ],
+      "output_columns": [
+        {"name": "date", "type": "string", "label": "Date", "description": "Quarter period timestamp (YYYY-Qn or YYYY-MM inferred).", "nullable": false, "role": "date_key"},
+        {"name": "gdp_current_usd", "type": "float", "label": "GDP Current USD", "description": "GDP in current US dollars (level).", "nullable": true, "role": "metric"},
+        {"name": "gdp_growth_yoy", "type": "float", "label": "GDP Growth YoY", "description": "GDP year-over-year growth (percent).", "nullable": true, "role": "metric"},
+        {"name": "country", "type": "string", "label": "Country", "description": "ISO alpha-2 country code echoed back.", "nullable": false, "role": "dimension"}
+      ],
+      "confidence": {
+        "score": 0.7,
+        "reasoning": "Docstring lists columns (date, gdp_current_usd, gdp_growth_yoy, country) and the country param with default. Quarterly frequency confirmed by the fixed freq=Q query param and docstring ('季度 GDP'). Same DataFrame(r.json()) shape assumption as get_cpi_series; unverifiable offline."
+      },
+      "entities": {
+        "entity_type": "country",
+        "identifier_shape": "ISO 3166-1 alpha-2 (e.g. US)",
+        "matched_in_daas": true,
+        "matching_entity_ids": [
+          {"code": "US", "daas_entity_id": 2, "name": "United States"}
+        ],
+        "notes": "Default country=US matches daas entity id=2. Same alpha-2 country coverage as get_cpi_series."
+      },
+      "proposed_indicators": [
+        {
+          "rule_name": "tiny_econ_gdp_sma4_gdp_current_usd",
+          "indicator_name": "sma4_gdp_current_usd",
+          "op": "sma",
+          "source_table": "scraw_tiny_econ_gdp",
+          "date_column": "date",
+          "value_column": "gdp_current_usd",
+          "params": {"window": 4},
+          "category": "new",
+          "concept_exists_in_daas": true,
+          "concept_note": "GDP-current-USD concept exists in daas: wbdata indicator `gdp_level_usd` (identity op on NY.GDP.MKTP.CD). sma4_gdp_current_usd does not exist -> new. Window 4 = 1 year of quarters.",
+          "existing_match": null
+        },
+        {
+          "rule_name": "tiny_econ_gdp_pct_change_gdp_current_usd",
+          "indicator_name": "pct_change_gdp_current_usd",
+          "op": "pct_change",
+          "source_table": "scraw_tiny_econ_gdp",
+          "date_column": "date",
+          "value_column": "gdp_current_usd",
+          "params": {},
+          "category": "new",
+          "concept_exists_in_daas": true,
+          "concept_note": "No pct_change on GDP level exists in daas (only gdp_level_usd identity). -> new.",
+          "existing_match": null
+        },
+        {
+          "rule_name": "tiny_econ_gdp_zscore4_gdp_current_usd",
+          "indicator_name": "zscore4_gdp_current_usd",
+          "op": "zscore",
+          "source_table": "scraw_tiny_econ_gdp",
+          "date_column": "date",
+          "value_column": "gdp_current_usd",
+          "params": {"window": 4},
+          "category": "new",
+          "concept_exists_in_daas": true,
+          "concept_note": "No zscore on GDP level in daas -> new.",
+          "existing_match": null
+        },
+        {
+          "rule_name": "tiny_econ_gdp_sma4_gdp_growth_yoy",
+          "indicator_name": "sma4_gdp_growth_yoy",
+          "op": "sma",
+          "source_table": "scraw_tiny_econ_gdp",
+          "date_column": "date",
+          "value_column": "gdp_growth_yoy",
+          "params": {"window": 4},
+          "category": "new",
+          "concept_exists_in_daas": true,
+          "concept_note": "GDP-growth concept exists in daas: wbdata `gdp_growth_annual_pct` (identity on NY.GDP.MKTP.KD.ZG, annual). tiny_econ provides quarterly YoY; sma4_gdp_growth_yoy does not exist -> new.",
+          "existing_match": null
+        },
+        {
+          "rule_name": "tiny_econ_gdp_pct_change_gdp_growth_yoy",
+          "indicator_name": "pct_change_gdp_growth_yoy",
+          "op": "pct_change",
+          "source_table": "scraw_tiny_econ_gdp",
+          "date_column": "date",
+          "value_column": "gdp_growth_yoy",
+          "params": {},
+          "category": "new",
+          "concept_exists_in_daas": true,
+          "concept_note": "No pct_change on GDP growth in daas -> new.",
+          "existing_match": null
+        },
+        {
+          "rule_name": "tiny_econ_gdp_zscore4_gdp_growth_yoy",
+          "indicator_name": "zscore4_gdp_growth_yoy",
+          "op": "zscore",
+          "source_table": "scraw_tiny_econ_gdp",
+          "date_column": "date",
+          "value_column": "gdp_growth_yoy",
+          "params": {"window": 4},
+          "category": "new",
+          "concept_exists_in_daas": true,
+          "concept_note": "No zscore on GDP growth in daas -> new.",
+          "existing_match": null
+        }
+      ]
+    },
+    {
+      "name": "list_countries",
+      "label": "List Supported Country Codes",
+      "description": "List all supported country codes. Returns a list of {code, name} dicts (not a DataFrame).",
+      "category": "macro_economics/reference",
+      "frequency": "irregular",
+      "output_type": "list_of_objects",
+      "data_source_provenance": {
+        "endpoint": "https://api.example.com/countries",
+        "method": "GET",
+        "query_params": {},
+        "transport": "requests",
+        "verified_live": false
+      },
+      "has_existing_cli": false,
+      "cli_wrapped": true,
+      "parameters": [],
+      "output_columns": [
+        {"name": "code", "type": "string", "label": "Code", "description": "ISO alpha-2 country code.", "nullable": false, "role": "dimension"},
+        {"name": "name", "type": "string", "label": "Name", "description": "Country name.", "nullable": false, "role": "dimension"}
+      ],
+      "confidence": {
+        "score": 0.6,
+        "reasoning": "Docstring states the return shape (list of {code, name} dicts). Lower confidence than the DataFrame fetchers because r.json() is returned directly (no DataFrame wrapping), so the object key set is slightly less certain, and there are no parameters to cross-check. No time-series -> no indicators."
+      },
+      "entities": {
+        "entity_type": "country",
+        "identifier_shape": "ISO 3166-1 alpha-2 (catalog of all supported codes)",
+        "matched_in_daas": true,
+        "matching_entity_ids": [],
+        "notes": "This function enumerates country codes rather than targeting one. The codes it returns are expected to overlap heavily with daas's 60 country entities (CN, US, JP, HK, ...). Whether every returned code exists in daas cannot be confirmed without execution; any code not in daas would be a new country entity to register."
+      },
+      "proposed_indicators": []
+    },
+    {
+      "name": "fetch_holidays",
+      "label": "Market Holidays (Annual)",
+      "description": "Download market holiday data (annual) for a market code. Returns a pandas DataFrame. NOTE: this function already has a @click.command decorator in the original library, so the sidecar CLI does NOT wrap it.",
+      "category": "macro_economics/holidays",
+      "frequency": "annual",
+      "output_type": "dataframe",
+      "data_source_provenance": {
+        "endpoint": "https://api.example.com/holidays",
+        "method": "GET",
+        "query_params": {"market": "<market code>"},
+        "transport": "requests",
+        "verified_live": false
+      },
+      "has_existing_cli": true,
+      "cli_wrapped": false,
+      "parameters": [
+        {"name": "market", "type": "string", "required": false, "default": "US", "description": "Market code, e.g. US/HK."}
+      ],
+      "output_columns": [
+        {"name": "date", "type": "string", "label": "Date", "description": "Holiday date.", "nullable": false, "role": "date_key"},
+        {"name": "market", "type": "string", "label": "Market", "description": "Market code echoed back.", "nullable": false, "role": "dimension"},
+        {"name": "name", "type": "string", "label": "Name", "description": "Holiday name.", "nullable": false, "role": "dimension"}
+      ],
+      "confidence": {
+        "score": 0.65,
+        "reasoning": "Docstring lists columns (date, market, name); annual frequency from docstring ('年度'). Already has a click command so its CLI surface is verified at the decorator level. No numeric time-series column -> no indicators. Slightly lower confidence because holiday 'name' is free-text and the endpoint is unverifiable."
+      },
+      "entities": {
+        "entity_type": "country",
+        "identifier_shape": "market code (US, HK - maps to ISO alpha-2 country codes)",
+        "matched_in_daas": true,
+        "matching_entity_ids": [
+          {"code": "US", "daas_entity_id": 2, "name": "United States"},
+          {"code": "HK", "daas_entity_id": 4, "name": "Hong Kong"}
+        ],
+        "notes": "Default market=US matches daas country id=2; HK matches id=4. Market codes map to country entities."
+      },
+      "proposed_indicators": []
+    }
+  ],
+  "excluded": [
+    {
+      "name": "_normalize",
+      "reason": "Private helper (leading underscore). Not a data fetcher - takes a DataFrame, returns df.fillna(0). No network call, no docstring-listed return columns. Excluded from descriptor functions, CLI, and dispatch."
+    }
+  ],
+  "indicator_summary": {
+    "total_proposed": 9,
+    "new": 9,
+    "new_concept": 0,
+    "exists": 0,
+    "note": "All tiny_econ metric concepts (CPI, GDP-current-USD, GDP-growth) already exist in daas under the massive/wbdata sources, so 0 new_concept. None of the 9 proposed indicator_names exactly match an existing indicator_rules.indicator_name, so 0 exists (0 duplicates). All 9 are new indicators on existing concept families."
+  },
+  "entity_summary": {
+    "entity_type": "country",
+    "identifier_shape": "ISO 3166-1 alpha-2",
+    "matched": ["CN (id=1)", "US (id=2)", "HK (id=4)"],
+    "new": [],
+    "notes": "All default/mentioned country codes (CN, US, HK) match existing daas country entities. list_countries() returns a full catalog whose codes likely all match; any unmatched code would require registering a new country entity (cannot verify without execution)."
+  }
+}

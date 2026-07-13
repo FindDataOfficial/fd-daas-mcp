@@ -116,5 +116,36 @@ for _group, _name, _func in registry.build():
     cli.commands[_group].add_command(_make_command(_name, _func))
 
 
+def _pdf_branch(argv: list[str]) -> int:
+    """In-process cron branches --pdf-ingest / --pdf-search for the optional
+    pdf group (mirror daas-mcp/server.py's --run-rule). Reachable as:
+    ``python -m cli_anything.fd_daas_mcp.cli --pdf-ingest <path|url>`` /
+    ``--pdf-search "<query>"``. Returns a structured error when the [pdf]
+    extra is absent."""
+    _pdf_dir = Path(__file__).resolve().parents[2] / "pdf-mcp"
+    if str(_pdf_dir) not in sys.path:
+        sys.path.insert(0, str(_pdf_dir))
+    try:
+        from pdf_tools import cli_ingest, cli_search  # type: ignore
+    except Exception as e:  # noqa: BLE001
+        click.echo(json.dumps({"error": f"pdf extra not installed: {e}. uv sync --extra pdf"}))
+        return 1
+    if "--pdf-ingest" in argv:
+        i = argv.index("--pdf-ingest")
+        if i + 1 >= len(argv):
+            click.echo(json.dumps({"error": "--pdf-ingest requires a <path|url> argument"}))
+            return 2
+        return cli_ingest(argv[i + 1])
+    if "--pdf-search" in argv:
+        i = argv.index("--pdf-search")
+        if i + 1 >= len(argv):
+            click.echo(json.dumps({"error": "--pdf-search requires a <query> argument"}))
+            return 2
+        return cli_search(argv[i + 1])
+    return 0
+
+
 if __name__ == "__main__":
+    if "--pdf-ingest" in sys.argv or "--pdf-search" in sys.argv:
+        sys.exit(_pdf_branch(sys.argv[1:]))
     cli()
