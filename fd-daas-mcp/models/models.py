@@ -1770,3 +1770,97 @@ class WorkflowStepResult(Base):
             "meta": _json_loads(self.meta_json),
             "ran_at": self.ran_at.isoformat() if self.ran_at else None,
         }
+
+
+# ═══════════════════════════════════════════════════════════════
+# pdf-mcp domain - local PDF/text vector search (sqlite-vec + sentence-transformers)
+# Additive, optional ([pdf] extra). The pdf_chunks_vec vec0 virtual table is
+# created at runtime by pdf_database.py (SQLAlchemy does not model virtual
+# tables); these two metadata tables + the key/value store are created via
+# Base.metadata.create_all like every other table.
+# ═══════════════════════════════════════════════════════════════
+
+
+class PdfDocument(Base):
+    """An ingested PDF or text document. Vectors live in the sibling
+    `pdf_chunks_vec` vec0 virtual table (created at runtime); this row holds
+    the document metadata + the SHA-256 `file_hash` used for dedup."""
+
+    __tablename__ = "pdf_documents"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(512), nullable=False)
+    source_type = Column(String(16), nullable=False)  # file|url|text
+    source_ref = Column(String(1024), nullable=True)  # path / filing ref
+    url = Column(String(1024), nullable=True)
+    file_hash = Column(String(64), nullable=True, index=True)  # SHA-256, dedup key
+    page_count = Column(Integer, nullable=True)
+    char_count = Column(Integer, nullable=False, default=0)
+    chunk_count = Column(Integer, nullable=False, default=0)
+    embedding_model = Column(String(255), nullable=False)
+    embedding_dim = Column(Integer, nullable=False)
+    status = Column(String(16), nullable=False, default="active")  # active|no_text
+    metadata_ = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> dict:
+        return {
+            "doc_id": self.id,
+            "name": self.name,
+            "source_type": self.source_type,
+            "source_ref": self.source_ref,
+            "url": self.url,
+            "page_count": self.page_count,
+            "chunk_count": self.chunk_count,
+            "embedding_model": self.embedding_model,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class PdfChunk(Base):
+    """A chunk of an ingested document. The matching vector row in
+    `pdf_chunks_vec` shares this row's `id` as its `rowid`."""
+
+    __tablename__ = "pdf_chunks"
+    __table_args__ = (UniqueConstraint("doc_id", "chunk_index", name="uq_pdf_chunk_doc_index"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    doc_id = Column(
+        Integer,
+        ForeignKey("pdf_documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    chunk_index = Column(Integer, nullable=False)
+    text = Column(Text, nullable=False)
+    page_number = Column(Integer, nullable=True)
+    char_start = Column(Integer, nullable=False, default=0)
+    char_end = Column(Integer, nullable=False, default=0)
+    token_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "doc_id": self.doc_id,
+            "chunk_index": self.chunk_index,
+            "text": self.text,
+            "page_number": self.page_number,
+            "char_start": self.char_start,
+            "char_end": self.char_end,
+            "token_count": self.token_count,
+        }
+
+
+class PdfMeta(Base):
+    """Key/value store for the pdf group (embedding_dim, embedding_model) so
+    the configured model's dimension can be compared against the stored
+    `pdf_chunks_vec` dimension to detect model swaps."""
+
+    __tablename__ = "pdf_meta"
+
+    key = Column(String(64), primary_key=True)
+    value = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

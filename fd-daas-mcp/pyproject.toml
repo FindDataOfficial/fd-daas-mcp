@@ -27,8 +27,13 @@ es = ["elasticsearch>=8.0"]
 # removed to avoid advertising unmaintained deps. Restore from the archived
 # openspec specs listed in cli_anything/fd_daas_mcp/registry.py:
 #   scrapling, firecrawl -> archive/2026-07-12-fold-scrapling-add-firecrawl
-#   pdf                  -> archive/2026-07-12-add-pdf-pageindex
 #   massive              -> archive/2026-07-06-add-massive-datasources
+# (pdf was restored as a local vector-search group - see the `pdf` extra below
+# and openspec/changes/add-pdf-vector-search; no longer "dropped".)
+# Local PDF/text vector search: sentence-transformers (embeddings) + sqlite-vec
+# (vec0 ANN index) + pdfplumber/pypdf (text extraction). Loaded as an optional
+# `pdf` tool group gated on `sqlite_vec` (see registry.py). No API key, no egress.
+pdf = ["sentence-transformers", "sqlite-vec", "pdfplumber", "pypdf"]
 # REPL history/autocomplete.
 repl = ["prompt_toolkit>=3.0"]
 dev = ["pytest>=8.0"]

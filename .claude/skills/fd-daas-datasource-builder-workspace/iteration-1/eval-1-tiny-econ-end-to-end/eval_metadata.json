@@ -1,0 +1,24 @@
+{
+  "eval_id": 1,
+  "eval_name": "tiny-econ-end-to-end",
+  "prompt": "Analyze ./evals/fixtures/tiny_econ; produce daas.descriptor.json + daas_cli.py + daas-skill/SKILL.md + daas-skill/dispatch.json; validate + dry-run import into daas.db (covers original evals 1 and 2).",
+  "assertions": [
+    {"text": "daas.descriptor.json exists and is valid JSON"},
+    {"text": "daas_cli.py exists and is syntactically valid Python (ast.parse succeeds)"},
+    {"text": "daas_cli.py defines a Click group whose commands are exactly {get-cpi-series, fetch-gdp-quarterly, list-countries} (3 total) - fetch_holidays is skipped because it already has a CLI"},
+    {"text": "daas-skill/SKILL.md exists and has YAML frontmatter with name + description"},
+    {"text": "daas-skill/dispatch.json exists and is valid JSON"},
+    {"text": "import_report.txt exists, is non-empty, and indicates the descriptor imports without unique-constraint collisions (import-ready)"},
+    {"text": "descriptor contains exactly the 4 fetchers {get_cpi_series, fetch_gdp_quarterly, list_countries, fetch_holidays} and excludes _normalize"},
+    {"text": "get_cpi_series columns include date, cpi_yoy, country (matching its docstring)"},
+    {"text": "fetch_gdp_quarterly columns include date, gdp_current_usd, gdp_growth_yoy, country (matching its docstring)"},
+    {"text": "the cpi_yoy column has >=1 proposed_indicator_rule (it is a numeric time-series metric)"},
+    {"text": "macro metric columns (cpi_yoy and/or gdp_*) are flagged candidate_new_metric with dedup_status=new_concept, because daas has no macro indicators today"},
+    {"text": "proposed indicator_names are checked against daas.db existing indicator_rules.indicator_name (no blind duplicates; 'exists' used where relevant)"},
+    {"text": "no two proposed_indicator_rules in the descriptor share the same indicator_name (within-file uniqueness)"},
+    {"text": "country entity has matched_existing=true (daas.entities has 60 countries) OR a justified note"},
+    {"text": "every function has a frequency in {realtime,intraday,daily,weekly,monthly,quarterly,annual,irregular} (non-empty)"},
+    {"text": "every function has a confidence in [0,1] AND a non-empty confidence_reasoning"},
+    {"text": "get_cpi_series frequency is monthly; fetch_gdp_quarterly frequency is quarterly"}
+  ]
+}

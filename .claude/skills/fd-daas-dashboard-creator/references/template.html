@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<!--
+  fd-daas-dashboard-creator — reference template for an ECharts dashboard with
+  interactive entity + time filters.
+
+  WHY THIS PATTERN (read before adapting):
+  - ECharts is loaded from a LOCALLY VENDORED file: vendor/echarts.min.js
+    (relative <script src>). NOT from a CDN. Dashboards open via file:// in
+    environments where CDNs (jsdelivr/unpkg/cdnjs) are blocked by a proxy or
+    firewall, and a <canvas> whose ECharts lib never loads fails SILENTLY —
+    the user sees empty space, no error. A locally vendored file renders with
+    zero network. Ensure vendor/echarts.min.js exists before building (the
+    skill fetches it once from jsdelivr; manual fallback if offline).
+  - The data is BAKED into the page as a <script type="application/json"> blob.
+    file:// pages cannot fetch(), so the rows must live in the file. The skill
+    builds this blob from the rows it validated (Step 3 of SKILL.md).
+  - An entity <select> + start/end date inputs filter the baked JSON client-side
+    and call chart.setOption(...) on every chart. No page reload, no network.
+    This is the mandatory filter wiring for every new dashboard.
+
+  HOW TO ADAPT:
+  - Replace the #dashboard-data JSON with your validated rows, keyed by entity.
+  - Add one <div class="chart"> per chart; init each with echarts.init in the
+    render() function and rebuild its option from the filtered series.
+  - The filter logic (getFiltered()) is generic — usually no change needed.
+  - For candlestick/bar/scatter, swap the series `type` in buildOption().
+
+  Generated dashboards live at: dashboards/<slug>.html
+  Register each via scripts/register_dashboard.py register (see SKILL.md step 6),
+  which also regenerates index.html + daas.md from the dashboards table.
+-->
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard Template</title>
+<script src="vendor/echarts.min.js"></script>
+<style>
+  body { font-family: -apple-system, "PingFang SC", sans-serif; margin: 20px; background: #f5f5f5; color: #222; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  h2 { font-size: 17px; border-left: 4px solid #2563eb; padding-left: 10px; margin-top: 28px; }
+  .section { background: #fff; padding: 14px 16px; margin: 10px 0; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .note { color: #666; font-size: 12px; }
+  code { background: #eef; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+
+  /* filter bar */
+  .filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 12px 0; padding: 10px 12px; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .filters label { font-size: 13px; color: #444; }
+  .filters select, .filters input { font-size: 13px; padding: 4px 6px; border: 1px solid #d0d0d0; border-radius: 4px; }
+  .filters .spacer { flex: 1; }
+  .filters .summary { font-size: 12px; color: #888; }
+
+  /* charts */
+  .chart { width: 100%; height: 360px; margin-top: 10px; }
+
+  /* tables */
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; margin-top: 10px; }
+  th, td { border: 1px solid #e5e7eb; padding: 5px 8px; text-align: left; white-space: nowrap; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) { background: #fafbfc; }
+  tr.highlight { background: #fef3c7 !important; }
+</style>
+</head>
+<body>
+<h1>Dashboard Title Here</h1>
+<p class="note">数据源: <code>&lt;source&gt;</code> · 静态快照 · 生成于 YYYY-MM-DD · ECharts (vendored, 离线可用)</p>
+
+<!-- ── Filter bar: entity + time range ─────────────────────────────── -->
+<div class="filters">
+  <label>标的
+    <select id="entity-select"></select>
+  </label>
+  <label>起 <input type="date" id="start-date"></label>
+  <label>止 <input type="date" id="end-date"></label>
+  <span class="spacer"></span>
+  <span class="summary" id="filter-summary"></span>
+</div>
+
+<!-- ── Section 1: an ECharts line chart ────────────────────────────── -->
+<h2>Section A — Line Chart</h2>
+<div class="section">
+  <div id="chart-a" class="chart"></div>
+</div>
+
+<!-- ── Section 2: a filtered table ─────────────────────────────────── -->
+<h2>Section B — Table</h2>
+<div class="section">
+  <table id="table-b">
+    <thead><tr><th>日期</th><th>值</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<!-- ── Baked data (replace with your validated rows) ───────────────── -->
+<script id="dashboard-data" type="application/json">
+{
+  "entities": ["600519", "000858"],
+  "dateField": "date",
+  "series": {
+    "600519": [
+      {"date": "2024-07-01", "close": 1689.0, "ma5": 1680.0},
+      {"date": "2024-07-02", "close": 1705.0, "ma5": 1685.0},
+      {"date": "2024-07-03", "close": 1698.0, "ma5": 1690.0},
+      {"date": "2024-07-04", "close": 1720.0, "ma5": 1700.0}
+    ],
+    "000858": [
+      {"date": "2024-07-01", "close": 142.3, "ma5": 141.0},
+      {"date": "2024-07-02", "close": 143.8, "ma5": 141.5},
+      {"date": "2024-07-03", "close": 141.9, "ma5": 142.0},
+      {"date": "2024-07-04", "close": 144.6, "ma5": 142.5}
+    ]
+  }
+}
+</script>
+
+<script>
+(function () {
+  const DATA = JSON.parse(document.getElementById("dashboard-data").textContent);
+  const dateField = DATA.dateField || "date";
+
+  // ── populate the entity <select> ──
+  const entitySelect = document.getElementById("entity-select");
+  (DATA.entities || []).forEach(e => {
+    const o = document.createElement("option");
+    o.value = e; o.textContent = e;
+    entitySelect.appendChild(o);
+  });
+
+  // ── default the date inputs to the full range ──
+  const allDates = Object.values(DATA.series).flat().map(r => r[dateField]).sort();
+  const startInput = document.getElementById("start-date");
+  const endInput = document.getElementById("end-date");
+  if (allDates.length) {
+    startInput.value = allDates[0];
+    endInput.value = allDates[allDates.length - 1];
+  }
+
+  const chartA = echarts.init(document.getElementById("chart-a"));
+
+  function getFiltered() {
+    const entity = entitySelect.value;
+    const start = startInput.value;
+    const end = endInput.value;
+    let rows = (DATA.series[entity] || []).slice();
+    if (start) rows = rows.filter(r => r[dateField] >= start);
+    if (end)   rows = rows.filter(r => r[dateField] <= end);
+    rows.sort((a, b) => a[dateField] < b[dateField] ? -1 : 1);
+    return rows;
+  }
+
+  function buildOption(rows) {
+    return {
+      tooltip: { trigger: "axis" },
+      legend: { top: 0 },
+      grid: { left: 50, right: 20, top: 40, bottom: 30 },
+      xAxis: { type: "category", data: rows.map(r => r[dateField]) },
+      yAxis: { type: "value", scale: true },
+      series: [
+        { name: "close", type: "line", data: rows.map(r => r.close), smooth: true },
+        { name: "ma5", type: "line", data: rows.map(r => r.ma5), lineStyle: { type: "dashed" } },
+      ],
+    };
+  }
+
+  function renderTable(rows) {
+    const tbody = document.querySelector("#table-b tbody");
+    tbody.innerHTML = "";
+    rows.forEach(r => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${r[dateField]}</td><td>${r.close}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function render() {
+    const rows = getFiltered();
+    chartA.setOption(buildOption(rows), true);
+    renderTable(rows);
+    document.getElementById("filter-summary").textContent =
+      `${entitySelect.value} · ${rows.length} 行 · ${rows.length ? rows[0][dateField] + " ~ " + rows[rows.length - 1][dateField] : "无数据"}`;
+  }
+
+  // ── re-render on any filter change ──
+  entitySelect.addEventListener("change", render);
+  startInput.addEventListener("change", render);
+  endInput.addEventListener("change", render);
+  window.addEventListener("resize", () => chartA.resize());
+
+  render();
+})();
+</script>
+</body>
+</html>

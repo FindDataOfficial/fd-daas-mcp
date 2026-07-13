@@ -56,4 +56,8 @@ from models.models import (  # noqa: F401
     ReportDocument,
     ReportSection,
     EsIndexMeta,
+    # pdf-mcp (local PDF/text vector search - optional [pdf] extra)
+    PdfDocument,
+    PdfChunk,
+    PdfMeta,
 )

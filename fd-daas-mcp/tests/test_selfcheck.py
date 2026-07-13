@@ -12,7 +12,7 @@ def test_run_invariants_returns_ok():
     )
 
 
-def test_run_invariants_has_five_checks():
+def test_run_invariants_has_six_checks():
     result = selfcheck.run_invariants()
     names = [c["name"] for c in result["checks"]]
     assert names == [
@@ -21,6 +21,7 @@ def test_run_invariants_has_five_checks():
         "leaf-isolation",
         "no-scheduler-thread",
         "report-no-core-failure",
+        "pdf-optional-state",
     ]
 
 

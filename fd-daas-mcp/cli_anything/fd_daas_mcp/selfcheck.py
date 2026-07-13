@@ -42,8 +42,9 @@ if _u.startswith("sqlite:///") and not _u.startswith("sqlite:////"):
 
 CORE = {"alerts", "cron", "composite", "daas", "dashboard", "leader"}
 # Groups documented as dropped (not tracked for restore). See registry.py.
+# (pdf was restored as the local vector-search group - see registry.py SOURCES
+# + openspec/changes/add-pdf-vector-search; no longer listed as dropped.)
 DROPPED = {
-    "pdf": "2026-07-12-add-pdf-pageindex",
     "scrapling": "2026-07-12-fold-scrapling-add-firecrawl",
     "firecrawl": "2026-07-12-fold-scrapling-add-firecrawl",
     "massive": "2026-07-06-add-massive-datasources",
@@ -115,6 +116,18 @@ def run_invariants() -> dict[str, Any]:
         "detail": (f"failed={rep['failed']} core_failures={core_failures} "
                    f"skipped_optional={rep['skipped_optional']}"),
     })
+
+    # [6] pdf optional group: registered when the [pdf] extra is present,
+    # skipped_optional when absent. Either is OK; a load failure is not.
+    _pdf_dep = registry._can_import("sqlite_vec")
+    _skipped_groups = {g for g, _ in rep["skipped_optional"]}
+    if _pdf_dep:
+        ok6 = "pdf" in counts and "pdf" not in _skipped_groups
+        detail6 = f"pdf extra present -> pdf registered ({counts.get('pdf', 0)} tools)"
+    else:
+        ok6 = "pdf" in _skipped_groups and "pdf" not in counts
+        detail6 = "pdf extra absent -> pdf skipped_optional"
+    checks.append({"name": "pdf-optional-state", "ok": ok6, "detail": detail6})
 
     return {
         "ok": all(c["ok"] for c in checks),

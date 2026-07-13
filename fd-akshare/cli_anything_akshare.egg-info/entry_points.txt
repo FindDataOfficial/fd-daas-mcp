@@ -1,2 +1,0 @@
-[console_scripts]
-cli-anything-akshare = cli_anything.akshare.akshare_cli:cli
