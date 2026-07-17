@@ -1,0 +1,88 @@
+site_name: DAAS - Data As a Service
+site_description: Skill-driven data fetch for financial, economic, and statistical data. Browse thousands of indicators, build collections, run research, and share dashboards.
+site_url: https://chengsishi.github.io/DAAS/
+repo_url: https://github.com/chengsishi/DAAS
+repo_name: chengsishi/DAAS
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tilde
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - User Guide:
+      - Overview: user/index.md
+      - Install & Deploy: user/install.md
+      - First Fetch in 5 Minutes: user/first-fetch.md
+  - Examples:
+      - Overview: examples/index.md
+      - Browse Indicators: examples/browse-indicators.md
+      - Create Collections: examples/create-collections.md
+      - Create a Research: examples/create-research.md
+      - Inspect an Entity: examples/inspect-entity.md
+      - Extract Financial Reports: examples/extract-financials.md
+      - Add a Personal Datasource: examples/add-datasource.md
+      - Share a Dashboard: examples/share-dashboard.md
+  - Concepts:
+      - Entities: concepts/entities.md
+      - Collections & Indicators: concepts/collections.md
+  - Skills:
+      - Overview: skills/index.md
+      - fd-daas-brainstorm: skills/brainstorm.md
+      - fd-daas-research: skills/research.md
+      - fd-daas-dashboard: skills/dashboard.md
+      - Sharing Dashboards: skills/sharing.md
+  - MCP Tools:
+      - Overview: mcp/index.md
+      - Tool Groups: mcp/groups.md
+  - Contributor Guide:
+      - Overview: contributor/index.md
+      - Author a Skill: contributor/author-skill.md
+      - MCP Test Suite: contributor/mcp-tests.md
+      - daas.db Schema: contributor/schema.md
+      - Deploy the Docs: contributor/deploy-docs.md
+  - Roadmap: roadmap.md
