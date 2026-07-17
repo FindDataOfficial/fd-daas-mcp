@@ -47,3 +47,6 @@ mcp/cnreport-mcp/.cache/
 
 # Logs
 *.log
+
+# Docs site build output (docs-site/) - never commit the generated static site
+docs-site/site/

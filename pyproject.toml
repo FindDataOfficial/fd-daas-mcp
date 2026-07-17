@@ -23,3 +23,10 @@ dependencies = [
 [tool.uv]
 # dartlab is intentionally NOT a root dep (3.12 floor). Fetch it ad-hoc:
 #   uv run --python 3.12 --with dartlab --with pandas python -c "import dartlab; ..."
+
+# Docs site (docs-site/). The `dev` dependency group is installed by default
+# with `uv sync`, so `uv run mkdocs build` / `uv run mkdocs serve` work as-is.
+[dependency-groups]
+dev = [
+    "mkdocs-material==9.5.*",
+]

@@ -6,6 +6,8 @@ Skill-driven data fetch for financial, economic, and statistical data — built 
 
 > **Upstream:** The `CLI-Anything/` directory is the upstream project (do not modify). Everything else in this repo is the data-fetch layer built on top of it.
 
+> **Docs site:** The full, role-based documentation lives at `docs-site/` (MkDocs Material). Read it locally with `uv run mkdocs serve` (browses at `/DAAS/`), or build strictly with `uv run mkdocs build --strict`. See [`docs-site/README.md`](docs-site/README.md) for build/serve/deploy.
+
 ---
 
 ## Architecture
