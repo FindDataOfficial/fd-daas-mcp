@@ -1,8 +1,8 @@
 site_name: DAAS - Data As a Service
 site_description: Skill-driven data fetch for financial, economic, and statistical data. Browse thousands of indicators, build collections, run research, and share dashboards.
-site_url: https://chengsishi.github.io/DAAS/
-repo_url: https://github.com/chengsishi/DAAS
-repo_name: chengsishi/DAAS
+site_url: https://finddataofficial.github.io/DAAS/
+repo_url: https://github.com/FindDataOfficial/DAAS
+repo_name: FindDataOfficial/DAAS
 docs_dir: docs
 site_dir: site
 
