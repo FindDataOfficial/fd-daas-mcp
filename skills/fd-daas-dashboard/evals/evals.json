@@ -1,0 +1,33 @@
+{
+  "skill_name": "fd-daas-dashboard",
+  "evals": [
+    {
+      "id": 1,
+      "name": "list-all-dashboards",
+      "prompt": "我们目前有哪些看板？分别都是干嘛的？",
+      "expected_output": "Calls list_dashboards; presents each dashboard's name + intro + slug. Currently returns 1 row (强势股趋势监控 — Phase 1 MVP) and summarizes its intro.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "search-and-open",
+      "prompt": "有没有关于美股强势股的看板？帮我打开看看",
+      "expected_output": "Calls search_dashboards with a keyword like '美股' or '强势股' (or list_dashboards if search misses); resolves the us-leaders-trend-monitor dashboard; calls get_dashboard to show its intro + entity coverage (12 symbols) + refresh cadence; asks permission before running `open <file_url>`.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "query-backing-data",
+      "prompt": "leaders 那个看板里的数据长什么样？我想看看背后的表",
+      "expected_output": "Resolves the us-leaders-trend-monitor dashboard (search/get_dashboard), takes its first source_table (e.g. scraw_aapl_daily), calls query_table(database='daas', table=..., limit=20), shows columns + a few rows + total row count, and names the source table.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "build-intent-redirect",
+      "prompt": "给这几只港股做一个看板",
+      "expected_output": "Recognizes this is a BUILD intent, NOT a use intent; tells the user to invoke fd-daas-dashboard-creator; does NOT call any registry mutation tool. (This is a should-NOT-trigger / redirect case for this skill.)",
+      "files": []
+    }
+  ]
+}

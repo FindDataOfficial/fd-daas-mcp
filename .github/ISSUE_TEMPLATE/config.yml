@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & discussions
+    url: https://github.com/FindDataOfficial/fd-daas-mcp/discussions
+    about: Ask questions and discuss usage in GitHub Discussions.
+  - name: Documentation
+    url: https://finddataofficial.github.io/fd-daas-mcp/
+    about: Read the docs site for guides, concepts, and examples.

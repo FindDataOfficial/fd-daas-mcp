@@ -1,0 +1,125 @@
+site_name: DAAS - Data As a Service
+site_description: Skill-driven data fetch for financial, economic, and statistical data. Browse thousands of indicators, build collections, run research, and share dashboards.
+site_url: https://finddataofficial.github.io/fd-daas-mcp/
+repo_url: https://github.com/FindDataOfficial/fd-daas-mcp
+repo_name: FindDataOfficial/fd-daas-mcp
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tilde
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      languages:
+        - locale: en
+          name: English
+          build: true
+        - locale: zh
+          name: 简体中文
+          build: true
+          default: true
+          nav_translations:
+            Home: 首页
+            User Guide: 用户指南
+            Overview: 概览
+            Install & Deploy: 安装与部署
+            First Fetch in 5 Minutes: 5 分钟首次获取
+            Examples: 示例
+            Browse Indicators: 浏览指标
+            Create Collections: 创建集合
+            Create a Research: 创建研究
+            Inspect an Entity: 检视实体
+            Extract Financial Reports: 提取财报
+            Add a Personal Datasource: 添加个人数据源
+            Share a Dashboard: 分享看板
+            Concepts: 概念
+            Entities: 实体
+            Collections & Indicators: 集合与指标
+            Skills: 技能
+            Sharing Dashboards: 分享看板
+            MCP Tools: MCP 工具
+            Tool Groups: 工具组
+            Contributor Guide: 贡献者指南
+            Author a Skill: 编写技能
+            MCP Test Suite: MCP 测试套件
+            daas.db Schema: daas.db 表结构
+            Deploy the Docs: 部署文档站
+            Roadmap: 路线图
+
+nav:
+  - Home: index.md
+  - User Guide:
+      - Overview: user/index.md
+      - Install & Deploy: user/install.md
+      - First Fetch in 5 Minutes: user/first-fetch.md
+  - Examples:
+      - Overview: examples/index.md
+      - Browse Indicators: examples/browse-indicators.md
+      - Create Collections: examples/create-collections.md
+      - Create a Research: examples/create-research.md
+      - Inspect an Entity: examples/inspect-entity.md
+      - Extract Financial Reports: examples/extract-financials.md
+      - Add a Personal Datasource: examples/add-datasource.md
+      - Share a Dashboard: examples/share-dashboard.md
+  - Concepts:
+      - Entities: concepts/entities.md
+      - Collections & Indicators: concepts/collections.md
+  - Skills:
+      - Overview: skills/index.md
+      - fd-daas-brainstorm: skills/brainstorm.md
+      - fd-daas-research: skills/research.md
+      - fd-daas-dashboard: skills/dashboard.md
+      - Sharing Dashboards: skills/sharing.md
+  - MCP Tools:
+      - Overview: mcp/index.md
+      - Tool Groups: mcp/groups.md
+  - Contributor Guide:
+      - Overview: contributor/index.md
+      - Author a Skill: contributor/author-skill.md
+      - MCP Test Suite: contributor/mcp-tests.md
+      - daas.db Schema: contributor/schema.md
+      - Deploy the Docs: contributor/deploy-docs.md
+  - Roadmap: roadmap.md

@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest a new tool, group, or behavior
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Who benefits and why? What can't you do today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like?
+      description: Describe the proposed tool, group, or behavior change. A command example helps.
+      placeholder: |
+        A new `daas_export_observations` tool that accepts `indicator=...` and
+        `format=csv|json` and returns the series.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds or other approaches you've tried.
+    validations:
+      required: false
+  - type: dropdown
+    id: group
+    attributes:
+      label: Tool group (if applicable)
+      options:
+        - daas
+        - alerts
+        - cron
+        - composite
+        - dashboard
+        - leader
+        - pdf
+        - research
+        - new group
+        - n/a
+    validations:
+      required: false

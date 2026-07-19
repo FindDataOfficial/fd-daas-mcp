@@ -1,0 +1,28 @@
+// Example .mcp.json for Claude Code (or any MCP client) pointing at fd-daas-mcp.
+//
+// After `pip install fd-daas-mcp`, the `fd-daas-mcp-server` console script is
+// on your PATH. Copy this file to your project as `.mcp.json` and restart
+// Claude Code - the ~187 tools show up as `<group>_<tool>` calls.
+{
+  "mcpServers": {
+    "fd-daas-mcp": {
+      "command": "fd-daas-mcp-server",
+      "args": []
+    }
+  }
+}
+
+// Variants:
+//   - Running from a clone (no pip install): point `command` at the launcher.
+//     "command": "/path/to/fd-daas-mcp/bin/fd-daas-mcp-server"
+//
+//   - Without the launcher, invoke the module directly with your venv python:
+//     "command": "/path/to/venv/bin/python",
+//     "args": ["-m", "fd_daas_mcp.server"]
+//
+//   - uvx (no install, runs the published package in an ephemeral env):
+//     "command": "uvx",
+//     "args": ["fd-daas-mcp"]
+//
+// Configure env (DAAS_DATABASE_URL, LLM_*, ALERTS_*, etc.) via a .env file in
+// your project root, or an `env` block here. See .env.example for the full list.

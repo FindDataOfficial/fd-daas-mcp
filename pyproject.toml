@@ -1,0 +1,94 @@
+[project]
+name = "fd-daas-mcp"
+version = "0.1.0"
+description = "Consolidated DAAS MCP server + CLI - hosts the alerts, cron, composite, daas, dashboard, leader, pdf, and research tool groups (~187 tools) behind one stdio FastMCP server and one Click CLI. Both consume fd_daas_mcp/registry.py so the server and CLI surfaces cannot drift."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "FindDataOfficial" }]
+keywords = ["mcp", "model-context-protocol", "fastmcp", "data", "finance", "indicators", "dashboards"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Office/Business :: Financial",
+    "Typing :: Typed",
+]
+dependencies = [
+    "fastmcp>=3.4.2",
+    "click>=8.0",
+    "pandas>=1.0",
+    "sqlalchemy>=2.0",
+    "python-dotenv>=1.0",
+    "apscheduler>=3.11.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/FindDataOfficial/fd-daas-mcp"
+Documentation = "https://finddataofficial.github.io/fd-daas-mcp/"
+Repository = "https://github.com/FindDataOfficial/fd-daas-mcp"
+Issues = "https://github.com/FindDataOfficial/fd-daas-mcp/issues"
+Changelog = "https://github.com/FindDataOfficial/fd-daas-mcp/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+# CrewAI powers leader's DataCrew router (ask_data_crew) + specialist agents.
+# Falls back to a deterministic direct router when absent.
+crew = ["crewai", "litellm"]
+# akshare is imported lazily by daas source modules; install for live A-share fetches.
+akshare = ["akshare>=1.13"]
+# elasticsearch powers cnreport ES store/search tools.
+es = ["elasticsearch>=8.0"]
+# Local PDF/text vector search: sentence-transformers (embeddings) + sqlite-vec
+# (vec0 ANN index) + pdfplumber/pypdf (text extraction). Loaded as an optional
+# `pdf` tool group gated on `sqlite_vec` (see registry.py). No API key, no egress.
+pdf = ["sentence-transformers", "sqlite-vec", "pdfplumber", "pypdf"]
+# Position rules: CSS/xpath (lxml+cssselect) + json-path (jsonpath-ng) extraction.
+# regex needs no extra dep. Lazy-imported by rule_engine._eval_position, so a
+# missing install degrades to a per-rule error, never a server-startup crash.
+position = ["lxml", "cssselect", "jsonpath-ng"]
+# REPL history/autocomplete.
+repl = ["prompt_toolkit>=3.0"]
+dev = [
+    "pytest>=8.0",
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocs-static-i18n>=1.2",
+    "twine>=5.0",
+]
+
+[project.scripts]
+fd-daas-mcp = "fd_daas_mcp.cli:cli"
+fd-daas-mcp-server = "fd_daas_mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["fd_daas_mcp*"]
+
+[tool.setuptools.package-data]
+fd_daas_mcp = [
+    "mcp/**/*.py",
+    "mcp/**/*.md",
+    "mcp/**/*.json",
+    "mcp/**/*.yaml",
+    "mcp/**/*.yml",
+    "mcp/**/*.txt",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+# The .venv leaks micromamba site-packages whose logfire pytest plugin crashes
+# on import (opentelemetry._tail_sampling). `-p no:X` is a no-op when the plugin
+# isn't registered, so this is safe in a clean venv too.
+addopts = "-p no:logfire -p no:pytest_logfire"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
