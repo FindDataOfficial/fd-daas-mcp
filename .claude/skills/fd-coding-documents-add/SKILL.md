@@ -39,13 +39,21 @@ Key rules inlined here:
    nav label.
 3. **Delegate the craft to `fd-coding-skill-creator`** for any iterative
    refinement of this skill itself; the page is produced by the steps below.
-4. **Write the page**:
-   - Place it under the role directory matching its section (§2).
+4. **Write the page** (both languages if the site is bilingual):
+   - If `docs-site/mkdocs.yml` declares the `i18n` plugin, create **both**
+     `<name>.zh.md` and `<name>.en.md` side by side (conventions §1a). If only
+     one language is available at write time, write that one - the site falls
+     back to the default locale for missing translations, but the language
+     selector will surface the gap.
+   - Place under the role directory matching its section (§2).
    - Start with a single H1 matching the nav label (§3).
    - Use relative internal links only; verify every link target exists.
    - Apply the live-surface check (§4) and no-secrets rule (§5).
-5. **Wire nav** - add an entry under the matching top-level section in
-   `docs-site/mkdocs.yml` `nav`.
+5. **Wire nav** - add **one** entry under the matching top-level section in
+   `docs-site/mkdocs.yml` `nav`, using the **untranslated base path**
+   (`user/mypage.md`, not `user/mypage.zh.md`); the i18n plugin resolves the
+   per-locale file. Add a `nav_translations:` entry on the `zh` locale for the
+   Chinese label.
 6. **Verify + rollback** - run `uv run mkdocs build --strict` from `docs-site/`:
    - If it passes, hand back.
    - If it fails (broken link, missing target, strict warning), **roll back**:

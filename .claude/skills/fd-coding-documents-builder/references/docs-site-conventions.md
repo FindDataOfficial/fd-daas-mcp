@@ -16,6 +16,27 @@ copy them verbatim into generated pages.
 - Serve: `uv run mkdocs serve` (local) or `--dev-addr 0.0.0.0:<port>` (LAN/WiFi).
 - The built `docs-site/site/` directory is **never committed** (`.gitignore`).
 
+## 1a. Internationalization (i18n)
+
+The site is **bilingual** (中文 default + English) via the `mkdocs-static-i18n`
+plugin (declared in the `dev` dependency group). Convention:
+
+- **Suffix layout**: each page has two files - `page.zh.md` (default) and
+  `page.en.md` - side by side in the same directory. Missing translations fall
+  back to the default language automatically.
+- **`nav` uses the untranslated base path** (`user/index.md`, not
+  `user/index.zh.md`); the plugin resolves the per-locale file at build time.
+- **Nav labels** are declared in English under `nav:` and translated per-locale
+  via the plugin's `nav_translations:` map on the `zh` locale entry.
+- **Default locale**: `zh` (`default: true`). English is served under `/en/`.
+- **Theme language**: `theme.language: zh` so Material's own strings match the
+  default. The plugin swaps to `en` for the English build.
+
+When adding a new page (via `fd-coding-documents-add` or manually), create
+both `page.zh.md` and `page.en.md`. If only one is provided, the site still
+builds (fallback to the default), but the language selector will land the
+reader on the fallback for that URL.
+
 ## 2. Role-based navigation (nav)
 
 `mkdocs.yml` `nav` MUST have these top-level sections, in this order:
