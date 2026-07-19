@@ -35,7 +35,8 @@ into the generated `docs-site/references/` and link to it.
 2. **Delegate the craft to `fd-coding-skill-creator`** for any iterative
    refinement of this skill itself; the scaffold is produced by the steps below.
 3. **Produce the scaffold** (this is what this skill adds):
-   - `docs-site/mkdocs.yml` - Material theme, search, nav with the role sections.
+   - `docs-site/mkdocs.yml` - Material theme, search, nav with the role sections,
+     and the `i18n` plugin (zh default + English, suffix convention).
    - `docs-site/docs/` skeleton - one index page per nav section (H1 + one-line
      placeholder), so `mkdocs build --strict` passes immediately.
    - `docs-site/docs/index.md` - site home.
