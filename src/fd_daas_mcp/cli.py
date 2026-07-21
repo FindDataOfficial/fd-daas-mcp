@@ -1,15 +1,23 @@
 """Click CLI for fd-daas-mcp - auto-generated from the same registry as the server.
 
 Usage:
-  fd-daas-mcp <group> <tool> [key=value ...] [--json]
+  fd-daas-mcp init [--db-url URL] [--seed|--no-seed] [--json]   # provision the DB
+  fd-daas-mcp doctor [--db-url URL] [--json]                     # read-only diagnostic
+  fd-daas-mcp <group> <tool> [key=value ...] [--json]           # any registered tool
   fd-daas-mcp                       # REPL mode (needs [repl] extra for history)
   fd-daas-mcp --help                # authoritative live surface (no drift)
+
+``init`` and ``doctor`` are top-level commands registered eagerly and dispatched
+BEFORE the tool registry is built (they must be runnable on a fresh install that
+has no database yet). Tool subcommands are built lazily on first access so
+``init``/``doctor`` don't pay the registry-build cost.
 """
 from __future__ import annotations
 
 import asyncio
 import inspect
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -73,7 +81,66 @@ def _make_command(name: str, func: Any) -> click.Command:
     return _cmd
 
 
-@click.group(invoke_without_command=True)
+# Core catalog tables ``init``/``doctor`` verify against. Keep this aligned with
+# fd_daas_mcp/models.py (DaasSource/DaasFunction/Entity/IndicatorRule/Observation/
+# Rule/...). Listed by name so a missing table is named explicitly.
+_CORE_TABLES = [
+    "sources", "daas_functions", "daas_function_columns", "categories",
+    "entities", "entity_datasource_links", "indicator_rules", "observations",
+    "rules",
+    "entity_collections", "entity_collection_items",
+    "indicator_collections", "indicator_collection_items",
+    "dashboards",
+]
+
+
+def _bootstrap_paths() -> None:
+    """Make ``mcp/daas/`` (daas_database, seed_starter_catalog) importable for
+    the init/doctor commands. ``fd_daas_mcp`` (incl. vendored ``models``) is
+    already importable as the installed package. Idempotent."""
+    daas_dir = Path(__file__).resolve().parent / "mcp" / "daas"
+    if str(daas_dir) not in sys.path:
+        sys.path.insert(0, str(daas_dir))
+
+
+def _sqlite_path_from_url(url: str) -> str | None:
+    """Best-effort filesystem path for a sqlite URL (None for :memory: / non-sqlite)."""
+    if ":memory:" in url:
+        return None
+    if url.startswith("sqlite:///"):
+        return url.replace("sqlite:///", "", 1)
+    return None
+
+
+class _LazyRegistryGroup(click.Group):
+    """Click group that lazily builds + registers tool subcommands on first
+    access (``--help`` / tool dispatch), so ``init`` and ``doctor`` (registered
+    eagerly) can run without building the tool registry."""
+
+    _built = False
+
+    def _ensure_built(self) -> None:
+        if self._built:
+            return
+        self._built = True
+        for group, name, func in registry.build():
+            if group not in self.commands:
+                self.add_command(click.Group(name=group, help=f"{group} group"))
+            self.commands[group].add_command(_make_command(name, func))
+
+    def list_commands(self, ctx) -> list[str]:  # type: ignore[override]
+        self._ensure_built()
+        return super().list_commands(ctx)
+
+    def resolve_command(self, ctx, args):  # type: ignore[override]
+        # Skip the (expensive) registry build for init/doctor - they must run
+        # before the tool registry is built and don't need the tool tree.
+        if not (args and args[0] in ("init", "doctor")):
+            self._ensure_built()
+        return super().resolve_command(ctx, args)
+
+
+@click.group(cls=_LazyRegistryGroup, invoke_without_command=True)
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """fd-daas-mcp - the consolidated DAAS MCP CLI. Run with no subcommand for REPL."""
@@ -109,11 +176,160 @@ def _repl() -> None:
             pass
 
 
-for _group, _name, _func in registry.build():
-    if _group not in cli.commands:
-        _grp = click.Group(name=_group, help=f"{_group} group")
-        cli.add_command(_grp)
-    cli.commands[_group].add_command(_make_command(_name, _func))
+# ─────────────────────────────────────────────────────────────────────────────
+# Top-level first-run commands (registered eagerly; run before the registry is
+# built). They provision / diagnose the database without needing any tool.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@click.command("init", help="Provision the DAAS database: create file + full schema + optional starter seed.")
+@click.option("--db-url", default=None, help="One-shot DB URL to provision (default: DAAS_DATABASE_URL or writable default).")
+@click.option("--seed/--no-seed", "seed_flag", default=None, help="Force seed (--seed) or skip (--no-seed). Default: seed iff sources table is empty.")
+@click.option("--json", "as_json", is_flag=True, help="Print a JSON summary.")
+def init_cmd(db_url: str | None, seed_flag: bool | None, as_json: bool) -> None:
+    _bootstrap_paths()
+    from sqlalchemy import inspect, text
+
+    from daas_database import provision_database  # type: ignore
+    from seed_starter_catalog import seed_starter_catalog, should_seed  # type: ignore
+
+    try:
+        db, url = provision_database(db_url)
+    except Exception as e:  # noqa: BLE001 - surface + exit non-zero
+        msg = {"error": f"{type(e).__name__}: {e}", "db_url": db_url or "(default)"}
+        if as_json:
+            click.echo(json.dumps(msg, ensure_ascii=False))
+        else:
+            click.echo(f"error: provisioning failed: {msg['error']} (db_url={msg['db_url']})", err=True)
+        sys.exit(1)
+
+    session = db.get_session()
+    try:
+        sources_before = session.execute(text("SELECT COUNT(*) FROM sources")).scalar() or 0
+        force = seed_flag is True
+        no_seed = seed_flag is False
+        do_seed = should_seed(session, force=force, no_seed=no_seed)
+        seed_result = seed_starter_catalog(session) if do_seed else None
+        sources_after = session.execute(text("SELECT COUNT(*) FROM sources")).scalar() or 0
+        tables = inspect(db.engine).get_table_names()
+        present = [t for t in _CORE_TABLES if t in tables]
+        summary = {
+            "db_url": url,
+            "schema_tables_present": len(present),
+            "schema_tables_expected": len(_CORE_TABLES),
+            "schema_complete": len(present) == len(_CORE_TABLES),
+            "missing_tables": [t for t in _CORE_TABLES if t not in tables],
+            "sources_before": sources_before,
+            "sources_after": sources_after,
+            "seed": seed_result,
+        }
+    finally:
+        session.close()
+
+    if as_json:
+        click.echo(json.dumps(summary, default=str, ensure_ascii=False, indent=2))
+    else:
+        click.echo(f"DAAS database: {url}")
+        click.echo(f"schema: {len(present)}/{len(_CORE_TABLES)} core tables present")
+        if seed_result:
+            click.echo(f"seed: inserted {seed_result['inserted']}, skipped {seed_result['skipped']} "
+                       f"(all enabled=False - supply creds/libs to activate)")
+        else:
+            click.echo("seed: skipped")
+        click.echo(f"sources: {sources_after}")
+        click.echo("next: point Claude Code at .mcp.json, or run `fd-daas-mcp doctor`.")
+    sys.exit(0)
+
+
+@click.command("doctor", help="Read-only diagnostic of the DAAS database state (no writes).")
+@click.option("--db-url", default=None, help="DB URL to inspect (default: DAAS_DATABASE_URL or writable default).")
+@click.option("--json", "as_json", is_flag=True, help="Print JSON.")
+def doctor_cmd(db_url: str | None, as_json: bool) -> None:
+    _bootstrap_paths()
+    from sqlalchemy import create_engine, inspect, text
+
+    from daas_database import resolve_db_url  # type: ignore
+
+    url = resolve_db_url(db_url)
+    path = _sqlite_path_from_url(url)
+    is_memory = (path is None and ":memory:" in url)
+    file_exists = is_memory or (path is not None and os.path.exists(path))
+    diag: dict[str, Any] = {
+        "db_url": url,
+        "file_exists": file_exists,
+        "schema_tables_expected": len(_CORE_TABLES),
+    }
+
+    # Missing sqlite file: report without opening the engine - opening would
+    # CREATE the file (a write), violating doctor's read-only invariant.
+    if path is not None and not file_exists:
+        diag.update(
+            schema_tables_present=0,
+            schema_complete=False,
+            missing_tables=list(_CORE_TABLES),
+            row_counts={},
+            optional_extras=_optional_extras(),
+            healthy=False,
+        )
+        _print_doctor(diag, as_json)
+        sys.exit(1)
+
+    try:
+        # create_engine alone does NOT create tables (only create_all does); for
+        # an existing file, SELECTs do not modify it. doctor is read-only.
+        engine = create_engine(url)
+        tables = inspect(engine).get_table_names()
+        present = [t for t in _CORE_TABLES if t in tables]
+        diag["schema_tables_present"] = len(present)
+        diag["schema_complete"] = len(present) == len(_CORE_TABLES)
+        diag["missing_tables"] = [t for t in _CORE_TABLES if t not in tables]
+        counts: dict[str, int] = {}
+        with engine.connect() as conn:
+            for t in ("sources", "daas_functions", "entities", "indicator_rules", "observations"):
+                if t in tables:
+                    counts[t] = conn.execute(text(f"SELECT COUNT(*) FROM {t}")).scalar() or 0
+        diag["row_counts"] = counts
+        diag["optional_extras"] = _optional_extras()
+        diag["healthy"] = diag["schema_complete"]
+    except Exception as e:  # noqa: BLE001 - report + exit non-zero
+        diag["error"] = f"{type(e).__name__}: {e}"
+        diag["healthy"] = False
+
+    _print_doctor(diag, as_json)
+    sys.exit(0 if diag.get("healthy") else 1)
+
+
+def _optional_extras() -> dict[str, bool]:
+    """Which optional extras are installed (gates tool groups like pdf)."""
+    extras: dict[str, bool] = {}
+    try:
+        import sqlite_vec  # noqa: F401
+        extras["sqlite_vec"] = True
+    except ImportError:
+        extras["sqlite_vec"] = False
+    return extras
+
+
+def _print_doctor(diag: dict[str, Any], as_json: bool) -> None:
+    if as_json:
+        click.echo(json.dumps(diag, default=str, ensure_ascii=False, indent=2))
+        return
+    click.echo(f"DAAS database: {diag.get('db_url')}")
+    click.echo(f"file_exists: {diag.get('file_exists')}")
+    click.echo(f"schema: {diag.get('schema_tables_present')}/{diag.get('schema_tables_expected')} core tables")
+    if diag.get("missing_tables"):
+        click.echo(f"missing: {', '.join(diag['missing_tables'])}")
+    click.echo(f"row_counts: {diag.get('row_counts')}")
+    click.echo(f"optional_extras: {diag.get('optional_extras')}")
+    if "error" in diag:
+        click.echo(f"error: {diag['error']}")
+    if not diag.get("healthy"):
+        click.echo("NOT healthy - run `fd-daas-mcp init`.")
+
+
+# init/doctor are registered eagerly (cheap); tool subcommands are built lazily
+# by _LazyRegistryGroup on first access.
+cli.add_command(init_cmd)
+cli.add_command(doctor_cmd)
 
 
 def _pdf_branch(argv: list[str]) -> int:

@@ -26,6 +26,10 @@ def test_cli_has_subcommand_per_registered_tool():
     for g, name, _ in tools:
         by_group[g].add(name)
 
+    # Tool subcommands are built lazily; force the build so cli.commands reflects
+    # the registry (init/doctor are registered eagerly and always present).
+    cli._ensure_built()
+
     for g, names in by_group.items():
         assert g in cli.commands, f"group {g!r} missing from CLI tree"
         grp = cli.commands[g]
@@ -40,8 +44,21 @@ def test_cli_has_subcommand_per_registered_tool():
 def test_cli_groups_match_registry_groups():
     tools = registry.build()
     reg_groups = {g for g, _, _ in tools}
-    cli_groups = {g for g in cli.commands}
+    cli._ensure_built()
+    # init/doctor are eagerly-registered top-level commands, not registry groups.
+    cli_groups = {g for g in cli.commands} - {"init", "doctor"}
     assert reg_groups == cli_groups, f"CLI groups {cli_groups} != registry groups {reg_groups}"
+
+
+def test_init_doctor_registered_eagerly_without_registry():
+    """init and doctor are top-level commands available before the tool registry
+    is built (so they can run on a fresh install with no database)."""
+    registry.reset_cache()
+    # Accessing cli.commands is a plain dict lookup; it must not trigger a
+    # registry build. init/doctor are registered eagerly at module import.
+    assert "init" in cli.commands
+    assert "doctor" in cli.commands
+    assert registry._BUILD_CACHE is None, "init/doctor must not require the registry"
 
 
 def test_malformed_arg_exits_2():

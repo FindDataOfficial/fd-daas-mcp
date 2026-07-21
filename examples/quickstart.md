@@ -8,11 +8,15 @@ From zero to your first tool call in under a minute.
 pip install fd-daas-mcp
 ```
 
-## 2. Configure
+## 2. Provision the database
 
 ```bash
-export DAAS_DATABASE_URL=sqlite:///daas.db   # any SQLAlchemy URL
+fd-daas-mcp init       # creates daas.db (full schema + dep-free starter sources)
+fd-daas-mcp doctor      # read-only health check (path, schema, row counts)
 ```
+
+`DAAS_DATABASE_URL` is optional - unset, it defaults to `./daas.db` (writable
+cwd) or `~/.fd-daas-mcp/daas.db`. Set it only to relocate.
 
 For LLM-powered features (the `leader` group's CrewAI router) and alert
 channels, copy `.env.example` to `.env` and fill in the values you need.
@@ -39,8 +43,9 @@ Copy [`examples/.mcp.json`](.mcp.json) to your project root. Restart Claude
 Code (or your MCP client). The tools appear as `daas_*`, `alerts_*`,
 `cron_*`, `composite_*`, `dashboard_*`, `leader_*`, `pdf_*`, `research_*`.
 
-The database schema auto-creates on first server startup via
-`Base.metadata.create_all` - there's no manual init step.
+The schema is also auto-created on first server startup (and the resolved DB
+path is logged at INFO); `fd-daas-mcp init` is the explicit provision + seed
+path, and `fd-daas-mcp doctor` is the read-only check.
 
 ## 5. (Optional) Start the stdio server manually
 

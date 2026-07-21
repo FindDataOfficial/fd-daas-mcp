@@ -56,9 +56,10 @@ pip install fd-daas-mcp
 ```
 
 ```bash
-# 3. Set a database URL (the schema auto-creates on first startup via
-#    Base.metadata.create_all - no manual init step):
-export DAAS_DATABASE_URL=sqlite:///daas.db
+# 3. Provision the database (creates daas.db + full schema + starter sources.
+#    DAAS_DATABASE_URL is optional - defaults to ./daas.db or ~/.fd-daas-mcp/):
+fd-daas-mcp init
+fd-daas-mcp doctor      # read-only health check (path, schema, row counts)
 
 # 4. Or use the CLI directly:
 fd-daas-mcp --help                  # see every group + tool

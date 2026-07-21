@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-21
+
+First-run database bootstrap - zero-config from `pip install` to a working,
+queryable database.
+
+### Added
+
+- **`fd-daas-mcp init`** - provisions the database (creates the file + full
+  schema via `Base.metadata.create_all` + every group's idempotent `init_db()`)
+  and seeds a dep-free starter catalog of `sources` (`akshare`, `yfinance`,
+  `worldbank`, `edgar`, all `enabled=False`). Idempotent; re-running is a no-op.
+  Flags: `--db-url`, `--seed`/`--no-seed`, `--json`.
+- **`fd-daas-mcp doctor`** - read-only diagnostic (resolved DB path, file
+  existence, schema state, row counts, missing optional extras). Never creates
+  or writes the DB. Exits 0 when healthy, non-zero with a pointer to `init`
+  when not.
+- **Writable default DB path** - with `DAAS_DATABASE_URL` unset, the database
+  resolves to `<cwd>/daas.db` (writable cwd) or `~/.fd-daas-mcp/daas.db`
+  (read-only cwd fallback), never inside the installed package (read-only
+  under `pip install`). `DAAS_DATABASE_URL` is now optional.
+- **Eager provisioning + path logging on server start** - the server
+  provisions the schema before any tool registers and logs the resolved DB
+  path at INFO.
+- **Selfcheck invariant** - asserts the default DB path never resolves inside
+  the installed package.
+
+### Changed
+
+- `DAAS_DATABASE_URL` is now optional (was effectively required for a clean
+  first run). The in-package `mcp/daas.db` default is dropped.
+
 ## [0.1.0] - 2026-07-20
 
 Initial public release. Carves the consolidated DAAS MCP server + CLI out of

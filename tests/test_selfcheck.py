@@ -12,7 +12,7 @@ def test_run_invariants_returns_ok():
     )
 
 
-def test_run_invariants_has_six_checks():
+def test_run_invariants_has_seven_checks():
     result = selfcheck.run_invariants()
     names = [c["name"] for c in result["checks"]]
     assert names == [
@@ -22,6 +22,7 @@ def test_run_invariants_has_six_checks():
         "no-scheduler-thread",
         "report-no-core-failure",
         "pdf-optional-state",
+        "default-db-not-in-package",
     ]
 
 

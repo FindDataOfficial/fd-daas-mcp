@@ -1,12 +1,17 @@
-"""Database singleton for daas-mcp — SQLAlchemy engine + session factory.
+"""Database singleton for daas-mcp - SQLAlchemy engine + session factory.
 
-Defaults to mcp/daas.db. Override with DAAS_DATABASE_URL env var.
+Default DB resolution (when DAAS_DATABASE_URL is unset): a writable, predictable
+location - ``<cwd>/daas.db`` if the cwd is writable and not inside the installed
+package, otherwise ``~/.fd-daas-mcp/daas.db`` (created on demand). Never inside
+the installed package (read-only under a normal ``pip install``). Override with
+DAAS_DATABASE_URL.
 """
 from __future__ import annotations
 
 import os
 import re
 import json
+import tempfile
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, inspect, text
@@ -14,12 +19,52 @@ from sqlalchemy.orm import sessionmaker, Session
 
 from fd_daas_mcp.models import Base
 
-# Absolute default DB location (mcp/daas.db) — file-anchored so cwd doesn't
-# matter. The writer is spawned via `uv run --directory mcp/daas-mcp`, which
-# sets its cwd to mcp/daas-mcp/, so relative sqlite:/// paths would otherwise
-# resolve against the wrong directory.
-_DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "daas.db"
+# Package root (fd_daas_mcp/) - used to detect when the cwd is inside the
+# installed package so the default never writes there. From
+# src/fd_daas_mcp/mcp/daas/daas_database.py, parents[2] is src/fd_daas_mcp/.
+_PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+# User data dir for the dotdir fallback (read-only cwd case).
+_USER_DATA_DIR = Path.home() / ".fd-daas-mcp"
+# Repo/package root - for anchoring relative sqlite:/// paths in _resolve_url so
+# a relative DAAS_DATABASE_URL works regardless of the process cwd.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def is_writable_dir(path: Path) -> bool:
+    """True if `path` is an existing writable directory (write-probe)."""
+    try:
+        if not path.is_dir():
+            return False
+        fd, name = tempfile.mkstemp(prefix=".daas-writecheck-", suffix=".tmp", dir=str(path))
+        os.close(fd)
+        os.unlink(name)
+        return True
+    except OSError:
+        return False
+
+
+def inside_installed_package(path: Path) -> bool:
+    """True if `path` resolves under the installed package root (the parent of
+    this file's package). Prevents the cwd-default from writing into the
+    installed package when the process happens to run from there."""
+    try:
+        return str(path.resolve()).startswith(str(_PACKAGE_ROOT.resolve()))
+    except OSError:
+        return False
+
+
+def default_db_path() -> Path:
+    """Resolve a writable default DB path when no env var is set.
+
+    Order: ``<cwd>/daas.db`` if the cwd is writable and not inside the installed
+    package; otherwise ``~/.fd-daas-mcp/daas.db`` (directory created on demand).
+    Never returns a path inside the installed package.
+    """
+    cwd = Path.cwd()
+    if is_writable_dir(cwd) and not inside_installed_package(cwd):
+        return cwd / "daas.db"
+    _USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    return _USER_DATA_DIR / "daas.db"
 
 
 def _resolve_url(url: str) -> str:
@@ -36,6 +81,19 @@ def _resolve_url(url: str) -> str:
     return url
 
 
+def resolve_db_url(db_url: str | None = None) -> str:
+    """Resolve the DB URL without constructing the engine or creating the
+    schema - safe for read-only inspection (``doctor``).
+
+    Explicit ``db_url`` wins; otherwise DAAS_DATABASE_URL / legacy
+    DAAS_REGISTRY_DB / :func:`default_db_path`. Applies :func:`_resolve_url`
+    (repo-root anchoring for relative paths).
+    """
+    if db_url is None:
+        db_url = Database._default_url()
+    return _resolve_url(db_url)
+
+
 class Database:
     """Singleton database accessor."""
 
@@ -45,6 +103,7 @@ class Database:
         if db_url is None:
             db_url = self._default_url()
         db_url = _resolve_url(db_url)
+        self._resolved_url = db_url
         self._engine = create_engine(db_url, echo=False)
         # SQLite ignores ON DELETE CASCADE unless PRAGMA foreign_keys=ON.
         # ponytail: enable per-connection so cascade deletes actually fire.
@@ -156,7 +215,7 @@ class Database:
     def _migrate_entity_collections_rule_script(self) -> None:
         """Idempotent: add nullable `rule_script` (TEXT) to a pre-existing
         `entity_collections` table. Stores a repo-root-relative path to a Python
-        rule script defining `members(ctx)` — the script analogue of `rule_json`.
+        rule script defining `members(ctx)` - the script analogue of `rule_json`.
         Mutually exclusive with `rule_json`. ponytail: same guard pattern as
         the other additive ALTERs.
         """
@@ -267,17 +326,24 @@ class Database:
         reg_db = os.environ.get("DAAS_REGISTRY_DB")
         if reg_db:
             return f"sqlite:///{reg_db}"
-        # Absolute default — file-anchored so cwd doesn't matter.
-        return f"sqlite:///{_DEFAULT_DB_PATH}"
+        # Writable default - cwd or ~/.fd-daas-mcp/daas.db. Never inside the
+        # installed package. See default_db_path().
+        return f"sqlite:///{default_db_path()}"
 
     def get_session(self) -> Session:
         return self._session_factory()
 
     @property
     def engine(self):
-        """Underlying SQLAlchemy engine — used by pipeline_tools for raw
+        """Underlying SQLAlchemy engine - used by pipeline_tools for raw
         sqlite upserts into scraw_<slug> tables."""
         return self._engine
+
+    @property
+    def resolved_url(self) -> str:
+        """The DB URL this instance was constructed with (after _resolve_url).
+        Used by ``init``/``doctor`` to report where the database lives."""
+        return self._resolved_url
 
     @classmethod
     def get_instance(cls) -> "Database":
@@ -288,3 +354,20 @@ class Database:
 
 def get_database() -> Database:
     return Database.get_instance()
+
+
+def provision_database(db_url: str | None = None) -> tuple[Database, str]:
+    """Construct (and cache) the database singleton, ensuring the full schema is
+    provisioned (``Base.metadata.create_all`` + every group's idempotent
+    ``init_db()`` DDL). Returns ``(database, resolved_url)``. Idempotent.
+
+    When ``db_url`` is None, uses the singleton (default resolution: env var or
+    writable default path). When ``db_url`` is given, constructs a fresh
+    Database for that URL without replacing the singleton (one-shot provisioning
+    into a custom path, e.g. ``fd-daas-mcp init --db-url X``).
+    """
+    if db_url is None:
+        db = get_database()
+    else:
+        db = Database(db_url)
+    return db, db.resolved_url

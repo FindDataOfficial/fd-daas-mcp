@@ -1,6 +1,6 @@
 [project]
 name = "fd-daas-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Consolidated DAAS MCP server + CLI - hosts the alerts, cron, composite, daas, dashboard, leader, pdf, and research tool groups (~187 tools) behind one stdio FastMCP server and one Click CLI. Both consume fd_daas_mcp/registry.py so the server and CLI surfaces cannot drift."
 readme = "README.md"
 requires-python = ">=3.12"

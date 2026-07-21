@@ -8,6 +8,7 @@ same :mod:`registry` so they cannot drift.
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -26,6 +27,21 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger("fd-daas-mcp")
 
 app = FastMCP(name="fd-daas-mcp")
+
+# Provision the database (create_all + every group's idempotent init_db()) BEFORE
+# the registry is built, so every tool sees a fully-created schema. Logs the
+# resolved DB path so a first-time user can see where their database lives. The
+# env-var precedence + writable-default (cwd / ~/.fd-daas-mcp/) live in
+# daas_database; this just triggers the (idempotent) provisioning eagerly.
+try:
+    _daas_dir = Path(__file__).resolve().parent / "mcp" / "daas"
+    if str(_daas_dir) not in sys.path:
+        sys.path.insert(0, str(_daas_dir))
+    from daas_database import provision_database  # type: ignore
+    _db, _db_url = provision_database()
+    logger.info("fd-daas-mcp database: %s", _db_url)
+except Exception as _e:  # noqa: BLE001 - provisioning must not block server start
+    logger.warning("fd-daas-mcp database provisioning failed: %s", _e)
 
 _tools = registry.build()
 for _group, _name, _func in _tools:

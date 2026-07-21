@@ -128,6 +128,11 @@ def run_invariants() -> dict[str, Any]:
         detail6 = "pdf extra absent -> pdf skipped_optional"
     checks.append({"name": "pdf-optional-state", "ok": ok6, "detail": detail6})
 
+    # [7] default DB path never resolves inside the installed package
+    # (database-autobootstrap): with DAAS_DATABASE_URL unset, the writable
+    # default must be cwd or ~/.fd-daas-mcp/daas.db, never the in-package path.
+    checks.append(_check_default_db_not_in_package())
+
     return {
         "ok": all(c["ok"] for c in checks),
         "checks": checks,
@@ -135,6 +140,37 @@ def run_invariants() -> dict[str, Any]:
         "tool_count": len(tools),
         "group_counts": dict(counts),
     }
+
+
+def _check_default_db_not_in_package() -> dict[str, Any]:
+    """With DAAS_DATABASE_URL unset, the resolved default DB path must NOT be
+    inside the installed package directory (read-only under a normal install)."""
+    daas_dir = Path(__file__).resolve().parent / "mcp" / "daas"
+    if str(daas_dir) not in sys.path:
+        sys.path.insert(0, str(daas_dir))
+    try:
+        from daas_database import (  # type: ignore
+            default_db_path,
+            inside_installed_package,
+            resolve_db_url,
+        )
+        saved_url = os.environ.pop("DAAS_DATABASE_URL", None)
+        saved_reg = os.environ.pop("DAAS_REGISTRY_DB", None)
+        try:
+            path = default_db_path()
+            url = resolve_db_url(None)
+            in_pkg = inside_installed_package(path)
+            ok = not in_pkg
+            detail = f"default={path}; in_package={in_pkg}; url={url}"
+        finally:
+            if saved_url is not None:
+                os.environ["DAAS_DATABASE_URL"] = saved_url
+            if saved_reg is not None:
+                os.environ["DAAS_REGISTRY_DB"] = saved_reg
+    except Exception as e:  # noqa: BLE001
+        ok = False
+        detail = f"check errored: {type(e).__name__}: {e}"
+    return {"name": "default-db-not-in-package", "ok": ok, "detail": detail}
 
 
 def main() -> int:
