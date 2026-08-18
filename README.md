@@ -36,6 +36,14 @@ For the full architecture, conventions, and the `daas.db` schema reference, see 
 
 Requirements: Python 3.10+ and [uv](https://docs.astral.sh/uv/). `dartlab` fetches need 3.12 — run them with `uv run --python 3.12 --with dartlab ...`.
 
+One-click install (clones DAAS + upstreams, provisions venvs, inits `daas.db`, localizes `.mcp.json`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/FindDataOfficial/DAAS/master/install.sh | sh
+```
+
+Env overrides: `DAAS_DEST` (default `~/code/DAAS`), `DAAS_BRANCH`, `FINDDATA_HOME` (default `~/finddata`). Manual steps below.
+
 ```bash
 # 1. Provision the root venv (data libs are declared deps)
 uv sync
