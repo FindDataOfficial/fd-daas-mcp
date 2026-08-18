@@ -1,1 +1,0 @@
-[dry-run] would import into /Users/chengsishi/code/cli-anything/daas.db: {'functions': 4, 'columns': 12, 'indicators_new': 9, 'indicators_skipped_existing': 0, 'indicators_new_concept': 0}

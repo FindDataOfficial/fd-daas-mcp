@@ -1,0 +1,10 @@
+# Curated crawl scope for scraw-__SRC_DASH__.
+# Override per run via the SCOPE_CONFIG env var (see docs/CONFIG.md).
+#
+# Example shape (adapt to the source):
+#   indicators:
+#     - SP.POP.TOTL
+#     - NY.GDP.MKTP.CD
+#   countries:
+#     - CN
+#     - US
