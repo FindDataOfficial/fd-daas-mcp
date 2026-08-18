@@ -28,8 +28,8 @@ import composite_database as cdb  # noqa: E402
 from composite_tools import _resolve_input, _dotted, make_chain_tool  # noqa: E402
 from server import build_served_tools  # noqa: E402
 
-AKSHARE_VENV = "/Users/chengsishi/code/daas/mcp/akshare-mcp/.venv/bin/fastmcp"
-AKSHARE_CWD = "/Users/chengsishi/code/daas/mcp/akshare-mcp"
+AKSHARE_VENV = "~/code/daas/mcp/akshare-mcp/.venv/bin/fastmcp"
+AKSHARE_CWD = "~/code/daas/mcp/akshare-mcp"
 
 AKSHARE_UPSTREAM = {
     "key": "akshare",

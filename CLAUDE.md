@@ -72,7 +72,7 @@ Query it directly: `sqlite3 daas.db "SELECT ..."` (from repo root). `PRAGMA fore
 
 # the related data provider project
 project root dir
-/Users/chengsishi/finddata
+~/finddata
 
 dataprovider porject
 fd-aksahre
