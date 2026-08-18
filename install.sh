@@ -40,9 +40,11 @@ mkdir -p "$FINDDATA"
 [ -d "$FINDDATA/fd-open-data-protocol/.git" ] || \
   git clone https://github.com/FindDataTechnology/fd-open-data-protocol.git "$FINDDATA/fd-open-data-protocol"
 
-# 4. repoint fd-daas-mcp's machine-local path dep at our clone
+# 4. repoint fd-daas-mcp's machine-local path deps at our clone
 sed -i.bak "s|path = \"/Users/chengsishi/finddata/fd-open-data-mcp\"|path = \"$FINDDATA/fd-open-data-mcp\"|" \
   fd-daas-mcp/pyproject.toml && rm -f fd-daas-mcp/pyproject.toml.bak
+sed -i.bak "s|/Users/chengsishi/finddata/fd-open-data-mcp|$FINDDATA/fd-open-data-mcp|g" \
+  fd-daas-mcp/uv.lock && rm -f fd-daas-mcp/uv.lock.bak
 
 # 5. venvs
 say "uv sync (root + fd-daas-mcp)"
