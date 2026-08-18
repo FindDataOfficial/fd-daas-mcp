@@ -23,7 +23,6 @@ DAAS/
   daas-doc/              # 技能生成的 markdown（研究计划、简介……）
   docs-site/             # 本 MkDocs Material 站
   construction/          # （过时）建造笔记
-  CLI-Anything/          # 上游 fork（不要修改）
   pyproject.toml         # uv 项目 + dev 依赖组（mkdocs-material）
 ```
 

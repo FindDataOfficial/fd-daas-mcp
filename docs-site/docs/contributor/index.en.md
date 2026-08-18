@@ -33,7 +33,6 @@ DAAS/
   daas-doc/              # skill-generated markdown (research plans, intros, ...)
   docs-site/             # this MkDocs Material site
   construction/          # (stale) construction notes
-  CLI-Anything/          # upstream fork (do not modify)
   pyproject.toml         # uv project + dev dependency group (mkdocs-material)
 ```
 
