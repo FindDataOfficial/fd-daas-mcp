@@ -4,7 +4,7 @@ Layered data platform for financial, economic, and statistical data — a single
 
 > **What is this?** A local data platform that turns Python data libraries (`akshare`, `yfinance`, `edgar`, `edinet-tools`, `dartlab`, `world_bank_data`, `ckanapi`) into a queryable, indicator-computing, dashboard-ready store backed by one SQLite file. You drive it through **Claude Code skills** (thin shells that call workflow manifests) or through the **consolidated `fd-daas-mcp` MCP server** — both paths read/write the same database.
 
-> **Upstream:** The `CLI-Anything/` directory is the upstream project (do not modify). The `fd-open-data-mcp` data-fetcher is a sibling repo at `~/finddata/fd-open-data-mcp`.
+> **Upstream:** The `fd-open-data-mcp` data-fetcher is a sibling repo at `~/finddata/fd-open-data-mcp` (cloned automatically by `install.sh`).
 
 > **Docs site:** The full, role-based documentation lives at `docs-site/` (MkDocs Material, EN+ZH bilingual). Read it locally with `uv run mkdocs serve` (browses at `/DAAS/`), or build strictly with `uv run mkdocs build --strict`. See [`docs-site/README.md`](docs-site/README.md) for build/serve/deploy.
 
@@ -39,7 +39,7 @@ Requirements: Python 3.10+ and [uv](https://docs.astral.sh/uv/). `dartlab` fetch
 One-click install (clones DAAS + upstreams, provisions venvs, inits `daas.db`, localizes `.mcp.json`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FindDataOfficial/DAAS/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/FindDataTechnology/fd-daas-mcp/master/install.sh | sh
 ```
 
 Env overrides: `DAAS_DEST` (default `~/code/DAAS`), `DAAS_BRANCH`, `FINDDATA_HOME` (default `~/finddata`). Manual steps below.
@@ -99,7 +99,6 @@ daas/
 ├── daas.db                  # Shared SQLite database (ships as a demo dataset: registry + observations + scraw_*)
 ├── dashboards/              # Standalone HTML dashboards (+ index.html, daas.md)
 ├── construction/            # Architecture docs (mcp.md — layered L0/L1/L2/L3)
-├── CLI-Anything/            # Upstream (do not modify)
 └── .env                     # DAAS_DATABASE_URL, proxy, source auth keys, LLM config, ...
 ```
 
@@ -199,4 +198,4 @@ If you are an AI agent (e.g. Claude Code) operating in this repo:
 
 ## License
 
-Apache 2.0 — see upstream [CLI-Anything](https://github.com/HKUDS/CLI-Anything).
+Apache 2.0.

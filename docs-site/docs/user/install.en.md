@@ -6,7 +6,7 @@ SQLite file (`daas.db`) at the repo root.
 ## 1. Clone & install
 
 ```bash
-git clone https://github.com/chengsishi/DAAS.git
+git clone https://github.com/FindDataTechnology/fd-daas-mcp.git
 cd DAAS
 uv sync            # provisions the root venv (data libs + mkdocs-material)
 ```

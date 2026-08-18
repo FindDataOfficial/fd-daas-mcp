@@ -5,7 +5,7 @@ DAAS 本地运行，使用 **uv** 和 Python 3.10+。所有读写都针对仓库
 ## 1. 克隆并安装
 
 ```bash
-git clone https://github.com/FindDataOfficial/DAAS.git
+git clone https://github.com/FindDataTechnology/fd-daas-mcp.git
 cd DAAS
 uv sync            # 配置根 venv（数据库 + mkdocs-material）
 ```

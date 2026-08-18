@@ -1,13 +1,13 @@
 #!/bin/sh
 # DAAS one-click install.
-#   curl -fsSL https://raw.githubusercontent.com/FindDataOfficial/DAAS/master/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/FindDataTechnology/fd-daas-mcp/master/install.sh | sh
 # Clones DAAS + the fd-open-data-mcp/-protocol upstreams, provisions venvs,
 # initializes daas.db, and rewrites .mcp.json to the local paths.
 # Env overrides: DAAS_DEST (default ~/code/DAAS), DAAS_BRANCH (default master),
 # FINDDATA_HOME (default ~/finddata).
 set -e
 
-REPO_URL="https://github.com/FindDataOfficial/DAAS.git"
+REPO_URL="https://github.com/FindDataTechnology/fd-daas-mcp.git"
 BRANCH="${DAAS_BRANCH:-master}"
 DEST="${DAAS_DEST:-$HOME/code/DAAS}"
 FINDDATA="${FINDDATA_HOME:-$HOME/finddata}"
@@ -29,7 +29,7 @@ if [ ! -d "$DEST/.git" ]; then
   git clone -b "$BRANCH" "$REPO_URL" "$DEST"
 fi
 cd "$DEST"
-[ -d fd-daas-mcp ] || { echo "fd-daas-mcp/ missing on branch '$BRANCH' — merge ponytail-cuts -> master first" >&2; exit 1; }
+[ -d fd-daas-mcp ] || { echo "fd-daas-mcp/ missing on branch '$BRANCH' — not a DAAS monorepo branch" >&2; exit 1; }
 
 # 3. clone the data-fetch upstreams (fd-daas-mcp path-depends on fd-open-data-mcp,
 #    which itself path-depends on ../fd-open-data-protocol — keep the sibling layout)
