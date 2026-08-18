@@ -5,6 +5,7 @@ Query layer over SQLAlchemy models — search, detail, categories, list.
 """
 from __future__ import annotations
 
+import json
 import re
 from typing import Optional
 
@@ -20,8 +21,6 @@ from models import (
     DatasourceSection,
     DatasourceCollection,
     DatasourceCollectionItem,
-    Entity,
-    EntityDatasourceLink,
     EntityCollection,
     EntityCollectionItem,
     EntityCollectionChange,
@@ -29,7 +28,9 @@ from models import (
     IndicatorCollection,
     IndicatorCollectionItem,
     IndicatorCollectionChange,
+    Rule,
 )
+from rule_engine import RuleEngine, legacy_shim, script_config_from_path
 
 
 # Routing-grammar helpers for entity coverage. The seed (seed_external_mcps)
@@ -42,6 +43,60 @@ _ROUTING_RE = re.compile(r"^mcp=(\S+)\s+tool=(\S+)(?:\s.*)?$")
 _IDENT_PARAM_RE = re.compile(
     r"^(ticker_or_cik|ticker_or_name|ticker_or_code|ticker|symbol|code)$"
 )
+
+
+class _EntityRef:
+    """Lightweight resolved-entity record (id + natural key) returned by
+    `EntityCollectionService._resolve_entity` when the entity comes from the
+    fd-open-data-mcp gateway rather than the local `entities` table. Carries
+    only the fields the collection write path reads (id, entity_type, code).
+    """
+
+    __slots__ = ("id", "entity_type", "code")
+
+    def __init__(self, id, entity_type, code):
+        self.id = id
+        self.entity_type = entity_type
+        self.code = code
+
+
+def _gateway_get_entity(entity_type: str, code: str):
+    """Resolve (entity_type, code) via the fd-open-data-mcp gateway.
+
+    Returns the upstream entity dict ({id, entity_type, code, name_en,
+    name_zh, metadata}) on success, or None if the gateway is unreachable,
+    errors, or the entity is not found — the caller then falls back to the
+    local `entities` table. Gateway modules live in the `gateway-mcp` package
+    (a separate group, evicted after registry harvest), so they are imported
+    lazily with that dir briefly on sys.path.
+    """
+    import json
+    import sys
+    from pathlib import Path
+
+    try:
+        gateway_dir = str(Path(__file__).resolve().parents[1] / "gateway-mcp")
+        _added = gateway_dir not in sys.path
+        if _added:
+            sys.path.insert(0, gateway_dir)
+        try:
+            from gateway_tools import call_data_mcp_sync
+        finally:
+            if _added:
+                sys.path.remove(gateway_dir)
+        resp = call_data_mcp_sync(
+            "fd-open-data-mcp",
+            "get_entity",
+            json.dumps({"entity_type": entity_type, "code": code}),
+        )
+    except Exception:
+        return None
+    if not isinstance(resp, dict) or "error" in resp:
+        return None
+    result = resp.get("result")
+    if not isinstance(result, dict):
+        return None
+    return result
 
 
 def _resolve_effective_score(
@@ -972,30 +1027,132 @@ class RegistryService:
     # Entity domain — stocks + countries, linked to daas `sources`
     # ════════════════════════════════════════════════════════════
 
+    def _proxy_get_entity_via_gateway(
+        self, entity_type: str, code: str
+    ) -> Optional[dict]:
+        """Fetch one entity from the fd-open-data-mcp master by natural key.
+
+        Returns a daas-shaped dict (normalized from the gateway's
+        ``{id, entity_type, code, name_en, name_zh, metadata}``), or ``None``
+        if the gateway is unavailable or the entity is not found there
+        (caller falls back to the local ``entities`` table).
+        """
+        sync_call = self._load_gateway_sync()
+        if sync_call is None:
+            return None
+        try:
+            resp = sync_call(
+                "fd-open-data-mcp",
+                "get_entity",
+                json.dumps({"entity_type": entity_type, "code": code}),
+            )
+        except Exception:
+            return None
+        if not isinstance(resp, dict) or "error" in resp:
+            return None
+        data = resp.get("result")
+        if not isinstance(data, dict) or not data.get("id"):
+            return None
+        return self._normalize_gateway_entity(data)
+
+    def _proxy_list_entities_via_gateway(
+        self, entity_type: str, limit: int, offset: int
+    ) -> Optional[list[dict]]:
+        """List entities of a type from the fd-open-data-mcp master.
+
+        Returns a list of daas-shaped dicts, or ``None`` if the gateway is
+        unavailable (caller falls back to the local ``entities`` table).
+        """
+        sync_call = self._load_gateway_sync()
+        if sync_call is None:
+            return None
+        try:
+            resp = sync_call(
+                "fd-open-data-mcp",
+                "list_entities",
+                json.dumps(
+                    {"entity_type": entity_type, "limit": limit, "offset": offset}
+                ),
+            )
+        except Exception:
+            return None
+        if not isinstance(resp, dict) or "error" in resp:
+            return None
+        data = resp.get("result")
+        if not isinstance(data, list):
+            return None
+        return [self._normalize_gateway_entity(d) for d in data if isinstance(d, dict)]
+
+    @staticmethod
+    def _normalize_gateway_entity(data: dict) -> dict:
+        """Map a gateway entity dict to the daas entity shape so callers see
+        a consistent surface during the migration (gateway is canonical
+        post-3.7; local fallback still serves the old shape until then)."""
+        meta = data.get("metadata") or {}
+        if isinstance(meta, str):
+            try:
+                import json as _json
+
+                meta = _json.loads(meta) or {}
+            except Exception:
+                meta = {}
+        return {
+            "id": data.get("id"),
+            "entity_type": data.get("entity_type"),
+            "code": data.get("code"),
+            "name": data.get("name_en") or data.get("name_zh"),
+            "name_en": data.get("name_en"),
+            "name_zh": data.get("name_zh"),
+            "ticker": meta.get("ticker"),
+            "exchange": meta.get("exchange"),
+            "country_code": meta.get("country_code"),
+            "aliases": meta.get("aliases"),
+            "metadata": meta,
+        }
+
     def search_entities(
         self, query: str, entity_type: Optional[str] = None, limit: int = 20
     ) -> list[dict]:
-        """Case-insensitive substring match on name / ticker / code, plus
-        a JSON-text LIKE on the aliases list. Returns up to `limit` hits."""
-        limit = min(max(limit, 1), 100)
-        like = f"%{query.lower()}%"
-        q = self._session.query(Entity)
-        if entity_type:
-            q = q.filter(Entity.entity_type == entity_type)
-        q = q.filter(
-            or_(
-                func.lower(Entity.name).like(like),
-                func.lower(Entity.ticker).like(like),
-                func.lower(Entity.code).like(like),
-                cast(Entity.aliases, String).like(f"%{query}%"),
-            )
-        )
-        rows = q.order_by(Entity.name).limit(limit).all()
-        return [r.to_dict() for r in rows]
+        """Case-insensitive substring match on name / ticker / code / aliases.
 
-    def get_entity(self, entity_id: int) -> Optional[dict]:
-        e = self._session.get(Entity, entity_id)
-        return e.to_dict() if e is not None else None
+        Per D5/3.5 the entity master is fd-open-data-mcp. The gateway has no
+        text-search tool, so when ``entity_type`` is given we fetch a batch
+        via ``list_entities`` and filter client-side; otherwise (or on any
+        gateway issue) we return ``[]`` — the local ``entities`` table was
+        dropped in 3.7.
+        """
+        limit = min(max(limit, 1), 100)
+        ql = query.lower()
+        if entity_type:
+            proxied = self._proxy_list_entities_via_gateway(entity_type, 500, 0)
+            if proxied is not None:
+                hits = [
+                    e
+                    for e in proxied
+                    if ql in (e.get("name") or "").lower()
+                    or ql in (e.get("code") or "").lower()
+                    or ql in (e.get("ticker") or "").lower()
+                    or ql in str(e.get("aliases") or "").lower()
+                ]
+                return hits[:limit]
+        return []
+
+    def get_entity(
+        self,
+        entity_id: Optional[int] = None,
+        entity_type: Optional[str] = None,
+        code: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Get full detail for one entity.
+
+        Per D5/3.5 the entity master is fd-open-data-mcp. When a natural
+        key (entity_type, code) is given, proxy via the gateway. When only
+        entity_id is given there is no gateway tool that resolves a bare id
+        and the local ``entities`` table was dropped in 3.7 — return None.
+        """
+        if entity_type and code:
+            return self._proxy_get_entity_via_gateway(entity_type, code)
+        return None
 
     def list_entities(
         self,
@@ -1005,115 +1162,133 @@ class RegistryService:
         limit: int = 100,
         offset: int = 0,
     ) -> dict:
+        """List entities filtered by type / exchange / country, paginated.
+
+        Per D5/3.5, the gateway (fd-open-data-mcp) is the entity master.
+        Proxy through the gateway when possible; on gateway error (or a
+        missing ``entity_type``) return an empty page — the local
+        ``entities`` table was dropped in 3.7.
+        """
         limit = min(max(limit, 1), 500)
         offset = max(offset, 0)
-        q = self._session.query(Entity)
-        if entity_type:
-            q = q.filter(Entity.entity_type == entity_type)
-        if exchange:
-            q = q.filter(Entity.exchange == exchange)
-        if country_code:
-            q = q.filter(Entity.country_code == country_code)
-        total = q.count()
-        rows = (
-            q.order_by(Entity.entity_type, Entity.name)
-            .offset(offset)
-            .limit(limit)
-            .all()
+
+        gateway_result = self._list_entities_via_gateway(
+            entity_type=entity_type,
+            exchange=exchange,
+            country_code=country_code,
+            limit=limit,
+            offset=offset,
         )
+        if gateway_result is not None:
+            return gateway_result
+
         return {
-            "entities": [r.to_dict() for r in rows],
-            "count": len(rows),
-            "total": total,
+            "entities": [],
+            "count": 0,
+            "total": 0,
             "offset": offset,
         }
 
-    def get_entity_coverage(self, entity_id: int) -> dict:
-        """For each datasource linked to the entity, return: identifier,
-        available sections (with the routing instruction and an
-        identifier-prefilled variant), and column count/list from
-        `daas_function_columns` for that source. When the source has no
-        registered `daas_functions` (external-MCP sources), return a
-        `column_hint` naming the sibling MCP + tool so the caller can fetch
-        columns via that MCP's get_function_info."""
-        e = self._session.get(Entity, entity_id)
-        if e is None:
-            raise ValueError(f"Entity id {entity_id} not found")
-        out = []
-        for link in (e.links or []):
-            src = link.source
-            if src is None:
-                continue
-            forms = (
-                self._session.query(DatasourceForm)
-                .filter(DatasourceForm.source_id == src.id)
-                .order_by(DatasourceForm.form_type)
-                .all()
+    def _list_entities_via_gateway(
+        self,
+        entity_type: Optional[str],
+        exchange: Optional[str],
+        country_code: Optional[str],
+        limit: int,
+        offset: int,
+    ) -> Optional[dict]:
+        """Proxy ``list_entities`` through the fd-open-data-mcp gateway.
+
+        The gateway's ``list_entities`` takes ``(entity_type, limit, offset)``
+        and returns ``{id, entity_type, code, name_en, name_zh, metadata}``.
+        We apply ``exchange``/``country_code`` filters in-memory (the gateway
+        doesn't filter on these). Returns ``None`` if the gateway is
+        unavailable (caller falls back to local).
+        """
+        if not entity_type:
+            # Gateway requires entity_type; can't proxy without it.
+            return None
+        sync_call = self._load_gateway_sync()
+        if sync_call is None:
+            return None
+        try:
+            resp = sync_call(
+                "fd-open-data-mcp",
+                "list_entities",
+                json.dumps({"entity_type": entity_type, "limit": limit, "offset": offset}),
             )
-            sections = []
-            mcp_hint: Optional[str] = None
-            tool_hint: Optional[str] = None
-            for f in forms:
-                secs = (
-                    self._session.query(DatasourceSection)
-                    .filter(DatasourceSection.form_id == f.id)
-                    .order_by(DatasourceSection.sort_order.nulls_last())
-                    .all()
-                )
-                for sec in secs:
-                    instr = sec.instruction or ""
-                    if mcp_hint is None:
-                        m = _ROUTING_RE.match(instr)
-                        if m:
-                            mcp_hint, tool_hint = m.group(1), m.group(2)
-                    sections.append(
-                        {
-                            "form_type": f.form_type,
-                            "section_name": sec.section_name,
-                            "instruction": instr,
-                            "prefilled_instruction": self._substitute_identifier(
-                                instr, link.identifier_in_source
-                            ),
-                        }
-                    )
-            cols = (
-                self._session.query(DaasFunctionColumn)
-                .join(DaasFunction)
-                .filter(DaasFunction.source_id == src.id)
-                .all()
-            )
-            d = {
-                "source": src.name,
-                "source_label": src.label,
-                "identifier_in_source": link.identifier_in_source,
-                "coverage": link.coverage,
-                "sections": sections,
-                "column_count": len(cols),
-                "columns": [
-                    {
-                        "name": c.name,
-                        "label": c.label,
-                        "type": c.type,
-                        "description": c.description,
-                    }
-                    for c in cols
-                ],
-            }
-            if not cols and (mcp_hint or tool_hint):
-                d["column_hint"] = {
-                    "mcp": mcp_hint,
-                    "tool": tool_hint,
-                    "note": (
-                        f"Columns live in {mcp_hint}; call its get_function_info "
-                        f"for tool '{tool_hint}' to retrieve them."
-                    ),
-                }
-            out.append(d)
+        except Exception:
+            return None
+        if not isinstance(resp, dict) or "error" in resp:
+            return None
+        data = resp.get("result")
+        if not isinstance(data, list):
+            return None
+        # Apply exchange/country_code filters in-memory (gateway doesn't filter).
+        filtered = data
+        if exchange or country_code:
+            filtered = []
+            for e in data:
+                meta = e.get("metadata") or {}
+                if exchange and meta.get("exchange") != exchange:
+                    continue
+                if country_code and meta.get("country_code") != country_code:
+                    continue
+                filtered.append(e)
+        # Coerce gateway shape to local Entity.to_dict() shape.
+        entities = []
+        for e in filtered:
+            meta = e.get("metadata") or {}
+            entities.append({
+                "id": e.get("id"),
+                "entity_type": e.get("entity_type"),
+                "code": e.get("code"),
+                "name": e.get("name_en") or e.get("name_zh"),
+                "name_en": e.get("name_en"),
+                "name_zh": e.get("name_zh"),
+                "ticker": meta.get("ticker"),
+                "exchange": meta.get("exchange"),
+                "country_code": meta.get("country_code"),
+                "aliases": meta.get("aliases", []),
+                "metadata": meta,
+            })
         return {
-            "entity_id": entity_id,
-            "entity": e.to_dict(),
-            "datasources": out,
-            "count": len(out),
+            "entities": entities,
+            "count": len(entities),
+            "total": len(entities),  # gateway doesn't return total; approximate
+            "offset": offset,
+        }
+
+    def get_entity_coverage(
+        self,
+        entity_id: Optional[int] = None,
+        entity_type: Optional[str] = None,
+        code: Optional[str] = None,
+    ) -> dict:
+        """Return the datasources linked to an entity.
+
+        Per D5/3.5, entity identity proxies through fd-open-data-mcp and the
+        local ``entity_datasource_links`` table was dropped in 3.7. There is
+        no local link data left to aggregate, so resolve the entity via the
+        gateway (when a natural key is given) and return empty coverage. The
+        identifier-per-source routing data now lives upstream.
+        """
+        if entity_type and code:
+            entity_info = self._proxy_get_entity_via_gateway(entity_type, code)
+            if entity_info is None:
+                raise ValueError(f"Entity {entity_type}/{code} not found")
+            eid = entity_info.get("id")
+        elif entity_id is not None:
+            # No gateway tool resolves a bare id and there is no local table
+            # to look it up in — nothing to return.
+            raise ValueError(f"Entity id {entity_id} not resolvable (no local entity master)")
+        else:
+            raise ValueError("entity_id or (entity_type, code) required")
+        return {
+            "entity_id": eid,
+            "entity": entity_info,
+            "datasources": [],
+            "count": 0,
         }
 
     @staticmethod
@@ -1143,62 +1318,18 @@ class RegistryService:
         coverage: str = "full",
         metadata: Optional[dict] = None,
     ) -> dict:
-        if self._session.get(Entity, entity_id) is None:
-            raise ValueError(f"Entity id {entity_id} not found")
-        src = self._resolve_source(source_name, None)
-        if src is None:
-            raise ValueError(f"source '{source_name}' not found")
-        link = (
-            self._session.query(EntityDatasourceLink)
-            .filter(
-                EntityDatasourceLink.entity_id == entity_id,
-                EntityDatasourceLink.source_id == src.id,
-            )
-            .first()
+        # The entity master + entity→datasource links moved to fd-open-data-mcp
+        # (D5/3.7 dropped `entities`/`entity_datasource_links`). No local store.
+        raise NotImplementedError(
+            "link_entity_datasource removed: entity→datasource links live in "
+            "fd-open-data-mcp, not daas.db (post-3.7)"
         )
-        if link is None:
-            link = EntityDatasourceLink(
-                entity_id=entity_id,
-                source_id=src.id,
-                identifier_in_source=identifier_in_source,
-                coverage=coverage,
-                metadata_=metadata,
-            )
-            self._session.add(link)
-        else:
-            link.identifier_in_source = identifier_in_source
-            link.coverage = coverage
-            if metadata is not None:
-                link.metadata_ = metadata
-        try:
-            self._session.commit()
-        except Exception:
-            self._session.rollback()
-            raise
-        return link.to_dict()
 
     def unlink_entity_datasource(self, entity_id: int, source_name: str) -> dict:
-        src = self._resolve_source(source_name, None)
-        if src is None:
-            raise ValueError(f"source '{source_name}' not found")
-        link = (
-            self._session.query(EntityDatasourceLink)
-            .filter(
-                EntityDatasourceLink.entity_id == entity_id,
-                EntityDatasourceLink.source_id == src.id,
-            )
-            .first()
+        raise NotImplementedError(
+            "unlink_entity_datasource removed: entity→datasource links live in "
+            "fd-open-data-mcp, not daas.db (post-3.7)"
         )
-        if link is None:
-            raise ValueError("link not found")
-        deleted = link.id
-        self._session.delete(link)
-        try:
-            self._session.commit()
-        except Exception:
-            self._session.rollback()
-            raise
-        return {"deleted": deleted}
 
 
 class EntityCollectionService:
@@ -1224,10 +1355,12 @@ class EntityCollectionService:
         description: Optional[str] = None,
         rule: Optional[dict] = None,
         rule_script: Optional[str] = None,
+        rule_id: Optional[int] = None,
     ) -> dict:
-        if rule is not None and rule_script is not None:
+        provided = [x for x in (rule, rule_script, rule_id) if x is not None]
+        if len(provided) > 1:
             raise ValueError(
-                "a collection may have either a rule_json or a rule_script, not both"
+                "a collection may have at most one of rule_id, rule, rule_script"
             )
         existing = (
             self._session.query(EntityCollection)
@@ -1241,6 +1374,7 @@ class EntityCollectionService:
             description=description,
             rule_json=rule,
             rule_script=rule_script,
+            rule_id=rule_id,
         )
         self._session.add(coll)
         try:
@@ -1272,20 +1406,23 @@ class EntityCollectionService:
         rule: Optional[dict] = None,
         clear_rule: bool = False,
         rule_script: Optional[str] = None,
+        rule_id: Optional[int] = None,
     ) -> dict:
-        if rule is not None and rule_script is not None:
+        provided = [x for x in (rule, rule_script, rule_id) if x is not None]
+        if len(provided) > 1:
             raise ValueError(
-                "a collection may have either a rule_json or a rule_script, not both"
+                "a collection may have at most one of rule_id, rule, rule_script"
             )
         if (
             new_name is None
             and description is None
             and rule is None
             and rule_script is None
+            and rule_id is None
             and not clear_rule
         ):
             raise ValueError(
-                "at least one of new_name, description, rule, rule_script is required"
+                "at least one of new_name, description, rule, rule_script, rule_id is required"
             )
         coll = self._get_collection(name)
         if new_name is not None and new_name != name:
@@ -1302,15 +1439,22 @@ class EntityCollectionService:
         if clear_rule:
             coll.rule_json = None
             coll.rule_script = None
+            coll.rule_id = None
         else:
-            # Mutually exclusive: setting one clears the other so the invariant
+            # Mutually exclusive: setting one clears the others so the invariant
             # (at most one rule per collection) holds across updates.
             if rule is not None:
                 coll.rule_json = rule
                 coll.rule_script = None
+                coll.rule_id = None
             if rule_script is not None:
                 coll.rule_script = rule_script
                 coll.rule_json = None
+                coll.rule_id = None
+            if rule_id is not None:
+                coll.rule_id = rule_id
+                coll.rule_json = None
+                coll.rule_script = None
         try:
             self._session.commit()
         except Exception:
@@ -1341,17 +1485,23 @@ class EntityCollectionService:
         reason: Optional[str] = None,
     ) -> dict:
         coll = self._get_collection(collection_name)
-        eid = self._resolve_entity_id(entity_id, entity_type, code)
+        e = self._resolve_entity(entity_id, entity_type, code)
         existing = (
             self._session.query(EntityCollectionItem)
             .filter(
                 EntityCollectionItem.collection_id == coll.id,
-                EntityCollectionItem.entity_id == eid,
+                EntityCollectionItem.entity_type == e.entity_type,
+                EntityCollectionItem.code == e.code,
             )
             .first()
         )
         if existing is not None:
-            return {"action": "already_member", "collection": coll.name, "entity_id": eid}
+            return {
+                "action": "already_member",
+                "collection": coll.name,
+                "entity_type": e.entity_type,
+                "code": e.code,
+            }
         next_order = (
             self._session.query(
                 func.coalesce(func.max(EntityCollectionItem.sort_order), -1)
@@ -1361,7 +1511,8 @@ class EntityCollectionService:
         ) + 1
         item = EntityCollectionItem(
             collection_id=coll.id,
-            entity_id=eid,
+            entity_type=e.entity_type,
+            code=e.code,
             sort_order=next_order,
             added_reason=reason,
         )
@@ -1369,7 +1520,8 @@ class EntityCollectionService:
         self._session.add(
             EntityCollectionChange(
                 collection_id=coll.id,
-                entity_id=eid,
+                entity_type=e.entity_type,
+                code=e.code,
                 action="add_in",
                 source="manual",
                 reason=reason,
@@ -1383,7 +1535,8 @@ class EntityCollectionService:
         return {
             "action": "added",
             "collection": coll.name,
-            "entity_id": eid,
+            "entity_type": e.entity_type,
+            "code": e.code,
             "item": self._member_detail(item),
         }
 
@@ -1396,22 +1549,29 @@ class EntityCollectionService:
         reason: Optional[str] = None,
     ) -> dict:
         coll = self._get_collection(collection_name)
-        eid = self._resolve_entity_id(entity_id, entity_type, code)
+        e = self._resolve_entity(entity_id, entity_type, code)
         item = (
             self._session.query(EntityCollectionItem)
             .filter(
                 EntityCollectionItem.collection_id == coll.id,
-                EntityCollectionItem.entity_id == eid,
+                EntityCollectionItem.entity_type == e.entity_type,
+                EntityCollectionItem.code == e.code,
             )
             .first()
         )
         if item is None:
-            return {"action": "not_member", "collection": coll.name, "entity_id": eid}
+            return {
+                "action": "not_member",
+                "collection": coll.name,
+                "entity_type": e.entity_type,
+                "code": e.code,
+            }
         self._session.delete(item)
         self._session.add(
             EntityCollectionChange(
                 collection_id=coll.id,
-                entity_id=eid,
+                entity_type=e.entity_type,
+                code=e.code,
                 action="remove_out",
                 source="manual",
                 reason=reason,
@@ -1422,7 +1582,12 @@ class EntityCollectionService:
         except Exception:
             self._session.rollback()
             raise
-        return {"action": "removed", "collection": coll.name, "entity_id": eid}
+        return {
+            "action": "removed",
+            "collection": coll.name,
+            "entity_type": e.entity_type,
+            "code": e.code,
+        }
 
     def list_entity_collection_items(self, collection_name: str) -> dict:
         coll = self._get_collection(collection_name)
@@ -1463,7 +1628,8 @@ class EntityCollectionService:
     def list_entity_collection_changes(
         self,
         collection_name: Optional[str] = None,
-        entity_id: Optional[int] = None,
+        entity_type: Optional[str] = None,
+        code: Optional[str] = None,
         action: Optional[str] = None,
         source: Optional[str] = None,
         limit: int = 100,
@@ -1477,8 +1643,10 @@ class EntityCollectionService:
             coll = self._get_collection(collection_name)
             coll_id = coll.id
             q = q.filter(EntityCollectionChange.collection_id == coll_id)
-        if entity_id is not None:
-            q = q.filter(EntityCollectionChange.entity_id == entity_id)
+        if entity_type is not None:
+            q = q.filter(EntityCollectionChange.entity_type == entity_type)
+        if code is not None:
+            q = q.filter(EntityCollectionChange.code == code)
         if action is not None:
             if action not in ("add_in", "remove_out"):
                 raise ValueError("action must be 'add_in' or 'remove_out'")
@@ -1494,23 +1662,20 @@ class EntityCollectionService:
             .limit(limit)
             .all()
         )
-        # Enrich with collection name + entity code/name in one pass.
+        # Enrich with collection name. Per D5/3.3 the change rows carry the
+        # denormalized natural key (entity_type, code), so entity_code comes
+        # straight off the row and survives the 3.7 drop of `entities`.
+        # entity_name is no longer resolvable locally (the gateway is the
+        # entity master); the code is the canonical id.
         coll_names = {c.id: c.name for c in self._session.query(EntityCollection).all()}
-        ent_map = {
-            e.id: e
-            for e in self._session.query(Entity)
-            .filter(Entity.id.in_([r.entity_id for r in rows]))
-            .all()
-        } if rows else {}
         out = []
         for r in rows:
-            e = ent_map.get(r.entity_id)
             out.append(
                 {
                     **r.to_dict(),
                     "collection_name": coll_names.get(r.collection_id),
-                    "entity_code": e.code if e else None,
-                    "entity_name": e.name if e else None,
+                    "entity_code": r.code,
+                    "entity_name": None,
                 }
             )
         return {"changes": out, "count": len(out), "total": total, "offset": offset}
@@ -1524,24 +1689,22 @@ class EntityCollectionService:
             .filter(EntityCollectionItem.collection_id == coll.id)
             .all()
         )
-        current_ids = {r.entity_id for r in current_rows}
-        if coll.rule_json is not None:
-            intended_ids = set(self._rule_entity_ids(coll.rule_json))
-            rule_kind = "json"
-        elif coll.rule_script is not None:
-            intended_ids = set(self._script_entity_ids(coll.rule_script))
-            rule_kind = "script"
-        else:
+        current_keys = {(r.entity_type, r.code) for r in current_rows}
+        rule_obj = self._resolve_rule_for_collection(coll)
+        if rule_obj is None:
             return {
                 "action": "manual_collection",
                 "name": coll.name,
                 "added": [],
                 "removed": [],
-                "unchanged": len(current_ids),
+                "unchanged": len(current_keys),
             }
-        to_add = intended_ids - current_ids
-        to_remove = current_ids - intended_ids
-        unchanged = len(intended_ids & current_ids)
+        db_url = str(self._session.bind.url)
+        intended_keys = set(RuleEngine.evaluate(rule_obj, self._session, db_url))
+        rule_kind = rule_obj.rule_type
+        to_add = intended_keys - current_keys
+        to_remove = current_keys - intended_keys
+        unchanged = len(intended_keys & current_keys)
         # Append at end: sort_order = max(existing) + 1, +1 each.
         next_order = (
             self._session.query(
@@ -1551,32 +1714,35 @@ class EntityCollectionService:
             .scalar()
         )
         added_details = []
-        for eid in to_add:
+        for etype, ecode in to_add:
             next_order += 1
             item = EntityCollectionItem(
                 collection_id=coll.id,
-                entity_id=eid,
+                entity_type=etype,
+                code=ecode,
                 sort_order=next_order,
-                added_reason=f"sync: rule matched",
+                added_reason="sync: rule matched",
             )
             self._session.add(item)
             self._session.add(
                 EntityCollectionChange(
                     collection_id=coll.id,
-                    entity_id=eid,
+                    entity_type=etype,
+                    code=ecode,
                     action="add_in",
                     source="cron",
                     reason="sync: rule matched",
                 )
             )
-            added_details.append(eid)
+            added_details.append({"entity_type": etype, "code": ecode})
         removed_details = []
-        for eid in to_remove:
+        for etype, ecode in to_remove:
             item = (
                 self._session.query(EntityCollectionItem)
                 .filter(
                     EntityCollectionItem.collection_id == coll.id,
-                    EntityCollectionItem.entity_id == eid,
+                    EntityCollectionItem.entity_type == etype,
+                    EntityCollectionItem.code == ecode,
                 )
                 .first()
             )
@@ -1585,13 +1751,14 @@ class EntityCollectionService:
             self._session.add(
                 EntityCollectionChange(
                     collection_id=coll.id,
-                    entity_id=eid,
+                    entity_type=etype,
+                    code=ecode,
                     action="remove_out",
                     source="cron",
                     reason="sync: rule no longer matches",
                 )
             )
-            removed_details.append(eid)
+            removed_details.append({"entity_type": etype, "code": ecode})
         try:
             self._session.commit()
         except Exception:
@@ -1618,29 +1785,104 @@ class EntityCollectionService:
             raise ValueError(f"Entity collection '{name}' not found")
         return coll
 
-    def _resolve_entity_id(
+    def _resolve_entity(
         self,
         entity_id: Optional[int],
         entity_type: Optional[str],
         code: Optional[str],
-    ) -> int:
+    ) -> object:
+        """Resolve an entity to a namespace carrying id + natural key.
+
+        Per design D5, the fd-open-data-mcp gateway is the entity master and
+        the local ``entities`` table is dropped in 3.7, so the natural key
+        ``(entity_type, code)`` is the only resolvable form. ``entity_id``-
+        only resolution is no longer possible (no local entity master; the
+        gateway has no id→natural-key tool).
+        """
         if entity_id is not None:
-            e = self._session.get(Entity, entity_id)
-            if e is None:
-                raise ValueError(f"entity id {entity_id} not found")
-            return e.id
-        if entity_type is None or code is None:
-            raise ValueError("provide entity_id, or both entity_type and code")
-        e = (
-            self._session.query(Entity)
-            .filter(Entity.entity_type == entity_type, Entity.code == code)
-            .first()
-        )
-        if e is None:
             raise ValueError(
-                f"entity not found for (entity_type={entity_type!r}, code={code!r})"
+                "entity_id resolution is no longer available (entities table "
+                "dropped in D5/3.7); provide entity_type + code"
             )
-        return e.id
+        if entity_type is None or code is None:
+            raise ValueError("provide both entity_type and code")
+
+        # Gateway-first (fd-open-data-mcp is the entity master per D5).
+        resolved = self._resolve_entity_via_gateway(entity_type, code)
+        if resolved is not None:
+            return resolved
+
+        # Gateway unavailable (or entity not found there): proceed with the
+        # caller-supplied natural key. The membership write path only needs
+        # entity_type + code — a watchlist can hold any (type, code) tuple,
+        # mirroring how rule scripts return arbitrary strings.
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            id=None, entity_type=entity_type, code=code, name=None
+        )
+
+    def _resolve_entity_via_gateway(
+        self,
+        entity_type: str,
+        code: str,
+    ) -> Optional[object]:
+        """Resolve ``(entity_type, code)`` via the fd-open-data-mcp gateway.
+
+        Returns a lightweight namespace with ``.id``/``.entity_type``/``.code``
+        (the only attributes the membership write path uses), or ``None`` if
+        the gateway is unavailable or the entity is not found there (caller
+        falls back to the caller-supplied natural key).
+        """
+        sync_call = self._load_gateway_sync()
+        if sync_call is None:
+            return None  # gateway bridge unavailable → local fallback
+        try:
+            resp = sync_call(
+                "fd-open-data-mcp",
+                "get_entity",
+                json.dumps({"entity_type": entity_type, "code": code}),
+            )
+        except Exception:
+            # gateway call failed (no event loop, transport error, …) →
+            # fall back to the local table.
+            return None
+        if not isinstance(resp, dict) or "error" in resp:
+            return None  # gateway error → local fallback
+        data = resp.get("result")
+        if not isinstance(data, dict) or not data.get("id"):
+            return None  # entity not found in gateway → local fallback
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            id=data["id"],
+            entity_type=data.get("entity_type") or entity_type,
+            code=data.get("code") or code,
+            name=data.get("name_en") or data.get("name_zh"),
+        )
+
+    @staticmethod
+    def _load_gateway_sync():
+        """Lazily load the sync gateway bridge (``call_data_mcp_sync``).
+
+        The bridge lives in ``gateway-mcp/gateway_tools.py``; at tool-call time
+        that directory is not on ``sys.path`` (the registry evicts per-group
+        source modules after harvest), so we insert it temporarily. Returns
+        the callable, or ``None`` if it cannot be imported (gateway
+        unavailable → callers fall back to local resolution).
+        """
+        try:
+            import sys
+            from pathlib import Path
+
+            gateway_dir = str(Path(__file__).resolve().parents[1] / "gateway-mcp")
+            if gateway_dir not in sys.path:
+                sys.path.insert(0, gateway_dir)
+            from gateway_tools import call_data_mcp_sync  # type: ignore
+
+            return call_data_mcp_sync
+        except Exception:
+            return None
 
     def _ordered_items(self, collection_id: int) -> list:
         return (
@@ -1651,110 +1893,59 @@ class EntityCollectionService:
         )
 
     def _member_detail(self, item: EntityCollectionItem) -> dict:
-        e = item.entity
         d = item.to_dict()
-        if e is not None:
-            d["entity_type"] = e.entity_type
-            d["code"] = e.code
-            d["name"] = e.name
-            d["ticker"] = e.ticker
-            d["exchange"] = e.exchange
-            d["country_code"] = e.country_code
-        else:
-            d.update(
-                entity_type=None, code=None, name=None, ticker=None,
-                exchange=None, country_code=None,
-            )
+        # D5: the item carries the denormalized natural key (entity_type, code);
+        # there is no local entity master post-3.7 (entities dropped), so the
+        # display fields (name/ticker/exchange/country_code) are no longer
+        # resolvable here — the code is the canonical id.
+        d["entity_type"] = item.entity_type
+        d["code"] = item.code
+        d["name"] = None
+        d["ticker"] = None
+        d["exchange"] = None
+        d["country_code"] = None
         return d
 
-    def _rule_entity_ids(self, rule: dict) -> list[int]:
-        """Apply the rule filter to `entities` and return matching entity ids.
-
-        Rule keys (AND-combined): entity_type, exchange, country_code,
-        codes (list), name_regex.
+    def _resolve_rule_for_collection(self, coll: EntityCollection):
+        """Resolve a collection's rule to an engine-evaluable object, with the
+        D8 precedence: `rule_id` (any rule_type) -> legacy `rule_script`
+        (treated as a `script` rule) -> legacy `rule_json` (treated as a `json`
+        rule) -> None (manual collection). Returns a `Rule` model instance, a
+        legacy shim, or None.
         """
-        q = self._session.query(Entity)
-        et = rule.get("entity_type")
-        if et:
-            q = q.filter(Entity.entity_type == et)
-        ex = rule.get("exchange")
-        if ex:
-            q = q.filter(Entity.exchange == ex)
-        cc = rule.get("country_code")
-        if cc:
-            q = q.filter(Entity.country_code == cc)
-        codes = rule.get("codes")
-        if codes:
-            q = q.filter(Entity.code.in_(list(codes)))
-        name_regex = rule.get("name_regex")
-        if name_regex:
-            # Uses the REGEXP function registered on the engine in
-            # daas_database._enable_fk. Falls back to LIKE if the operator
-            # raises (e.g. REGEXP not registered on this connection).
-            try:
-                q = q.filter(Entity.name.op("REGEXP")(name_regex))
-            except Exception:
-                q = q.filter(Entity.name.like(f"%{name_regex}%"))
-        return [e.id for e in q.all()]
+        if coll.rule_id is not None:
+            rule = self._session.get(Rule, coll.rule_id)
+            if rule is not None:
+                return rule
+            # stale rule_id (the rule was deleted) -> fall through to legacy/manual
+        if coll.rule_script is not None:
+            return legacy_shim("script", script_config_from_path(coll.rule_script), "entity_ids")
+        if coll.rule_json is not None:
+            return legacy_shim("json", coll.rule_json, "entity_ids")
+        return None
+
+    def _rule_entity_ids(self, rule: dict) -> list[tuple[str, str]]:
+        """Apply a legacy declarative `rule_json` filter and return matching
+        natural keys ``(entity_type, code)``. Delegates to the RuleEngine (json
+        type). Kept for `entity_collection_sync.py --dry-run` and the selfchecks.
+        """
+        return RuleEngine.evaluate(legacy_shim("json", rule, "entity_ids"), self._session)
 
     # ── script rule ──────────────────────────────────────────────
 
-    def _script_entity_ids(self, script_path: str) -> list[int]:
+    def _script_entity_ids(self, script_path: str) -> list[tuple[str, str]]:
         """Load a rule script, call `members(ctx)`, normalize the result to
-        entity ids. The script path is repo-root relative (or absolute); it
-        runs with a read-only `RuleScriptContext` so it can SELECT from any
-        daas.db table. Items that don't resolve to a known entity are skipped
-        — a sync shouldn't fail the whole collection over one delisted code.
+        natural keys ``(entity_type, code)``. The script path is repo-root
+        relative (or absolute); it runs with a read-only `RuleContext` so it
+        can SELECT from any daas.db table. Items that don't resolve to a
+        known entity are skipped — a sync shouldn't fail the whole collection
+        over one delisted code.
         """
-        from entity_rule_script import run_rule_script
-
-        db_url = str(self._session.bind.url)
-        result = run_rule_script(script_path, db_url)
-        return self._normalize_member_items(result)
-
-    def _normalize_member_items(self, items: list) -> list[int]:
-        """Resolve the script's returned member items to entity ids.
-
-        Each item may be:
-          - int  → an entity id directly
-          - str  → a stock code (entity_type defaults to 'stock')
-          - dict → {"entity_type":..,"code":..} or {"entity_id":int}
-        Unknown items are skipped.
-        """
-        ids: list[int] = []
-        for item in items:
-            eid = self._resolve_script_item(item)
-            if eid is not None:
-                ids.append(eid)
-        return ids
-
-    def _resolve_script_item(self, item) -> Optional[int]:
-        if isinstance(item, bool):  # bool is a subclass of int; ignore
-            return None
-        if isinstance(item, int):
-            e = self._session.get(Entity, item)
-            return e.id if e else None
-        if isinstance(item, str):
-            e = (
-                self._session.query(Entity)
-                .filter(Entity.entity_type == "stock", Entity.code == item)
-                .first()
-            )
-            return e.id if e else None
-        if isinstance(item, dict):
-            if item.get("entity_id") is not None:
-                e = self._session.get(Entity, item["entity_id"])
-                return e.id if e else None
-            code = item.get("code")
-            if code is not None:
-                et = item.get("entity_type", "stock")
-                e = (
-                    self._session.query(Entity)
-                    .filter(Entity.entity_type == et, Entity.code == code)
-                    .first()
-                )
-                return e.id if e else None
-        return None
+        return RuleEngine.evaluate(
+            legacy_shim("script", script_config_from_path(script_path), "entity_ids"),
+            self._session,
+            str(self._session.bind.url),
+        )
 
 
 class IndicatorCollectionService:
@@ -1778,7 +1969,10 @@ class IndicatorCollectionService:
     # ── collection CRUD ──────────────────────────────────────────
 
     def create_indicator_collection(
-        self, name: str, description: Optional[str] = None
+        self,
+        name: str,
+        description: Optional[str] = None,
+        rule_id: Optional[int] = None,
     ) -> dict:
         existing = (
             self._session.query(IndicatorCollection)
@@ -1787,7 +1981,7 @@ class IndicatorCollectionService:
         )
         if existing is not None:
             raise ValueError(f"Indicator collection '{name}' already exists")
-        coll = IndicatorCollection(name=name, description=description)
+        coll = IndicatorCollection(name=name, description=description, rule_id=rule_id)
         self._session.add(coll)
         try:
             self._session.commit()
@@ -1815,9 +2009,11 @@ class IndicatorCollectionService:
         name: str,
         new_name: Optional[str] = None,
         description: Optional[str] = None,
+        rule_id: Optional[int] = None,
+        clear_rule: bool = False,
     ) -> dict:
-        if new_name is None and description is None:
-            raise ValueError("at least one of new_name, description is required")
+        if new_name is None and description is None and rule_id is None and not clear_rule:
+            raise ValueError("at least one of new_name, description, rule_id is required")
         coll = self._get_collection(name)
         if new_name is not None and new_name != name:
             clash = (
@@ -1830,6 +2026,10 @@ class IndicatorCollectionService:
             coll.name = new_name
         if description is not None:
             coll.description = description
+        if clear_rule:
+            coll.rule_id = None
+        elif rule_id is not None:
+            coll.rule_id = rule_id
         try:
             self._session.commit()
         except Exception:
@@ -1850,6 +2050,132 @@ class IndicatorCollectionService:
         return {"deleted": deleted, "name": name}
 
     # ── membership ───────────────────────────────────────────────
+
+    def sync_indicator_collection(self, name: str) -> dict:
+        """Re-derive the member set for a rule-based indicator collection by
+        evaluating its rule (target='indicator_names') via the RuleEngine, diff
+        vs current members, apply add_in/remove_out (source='cron'), and record
+        every transition. A manual collection (rule_id NULL) is a no-op.
+        """
+        coll = self._get_collection(name)
+        rule_obj = self._resolve_rule_for_indicator_collection(coll)
+        current_rows = (
+            self._session.query(IndicatorCollectionItem)
+            .filter(IndicatorCollectionItem.collection_id == coll.id)
+            .all()
+        )
+        # indicator_id -> indicator_name (denormalized for the audit log).
+        id_to_name = {
+            i.indicator_id: (i.indicator.name if i.indicator else None)
+            for i in current_rows
+        }
+        current_ids = {i.indicator_id for i in current_rows}
+        if rule_obj is None:
+            return {
+                "action": "manual_collection",
+                "name": coll.name,
+                "added": [],
+                "removed": [],
+                "unchanged": len(current_ids),
+            }
+        if getattr(rule_obj, "target", "indicator_names") != "indicator_names":
+            return {
+                "success": False,
+                "error": (
+                    f"indicator collection rule must have target='indicator_names' "
+                    f"(got {rule_obj.target!r})"
+                ),
+            }
+        db_url = str(self._session.bind.url)
+        intended_names = {str(n) for n in RuleEngine.evaluate(rule_obj, self._session, db_url)}
+        # Resolve intended names -> indicator ids (unknown names skipped).
+        name_to_id: dict[str, int] = {}
+        for name in intended_names:
+            ind = (
+                self._session.query(IndicatorRule)
+                .filter(IndicatorRule.name == name)
+                .first()
+            )
+            if ind is not None:
+                name_to_id[name] = ind.id
+        intended_ids = set(name_to_id.values())
+        to_add = intended_ids - current_ids
+        to_remove = current_ids - intended_ids
+        unchanged = len(intended_ids & current_ids)
+        next_order = (
+            self._session.query(
+                func.coalesce(func.max(IndicatorCollectionItem.sort_order), -1)
+            )
+            .filter(IndicatorCollectionItem.collection_id == coll.id)
+            .scalar()
+        )
+        added_names = []
+        for iid in to_add:
+            next_order += 1
+            ind = self._session.get(IndicatorRule, iid)
+            iname = ind.name if ind else name_to_id.get(iid)
+            self._session.add(
+                IndicatorCollectionItem(
+                    collection_id=coll.id,
+                    indicator_id=iid,
+                    sort_order=next_order,
+                )
+            )
+            self._session.add(
+                IndicatorCollectionChange(
+                    collection_id=coll.id,
+                    indicator_name=iname,
+                    action="add_in",
+                    source="cron",
+                    reason="sync: rule matched",
+                )
+            )
+            added_names.append(iname)
+        removed_names = []
+        for iid in to_remove:
+            iname = id_to_name.get(iid)
+            item = (
+                self._session.query(IndicatorCollectionItem)
+                .filter(
+                    IndicatorCollectionItem.collection_id == coll.id,
+                    IndicatorCollectionItem.indicator_id == iid,
+                )
+                .first()
+            )
+            if item is not None:
+                self._session.delete(item)
+            self._session.add(
+                IndicatorCollectionChange(
+                    collection_id=coll.id,
+                    indicator_name=iname,
+                    action="remove_out",
+                    source="cron",
+                    reason="sync: rule no longer matches",
+                )
+            )
+            removed_names.append(iname)
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return {
+            "action": "synced",
+            "name": coll.name,
+            "rule": rule_obj.rule_type,
+            "added": added_names,
+            "removed": removed_names,
+            "unchanged": unchanged,
+        }
+
+    def _resolve_rule_for_indicator_collection(self, coll: IndicatorCollection):
+        """Resolve an indicator collection's rule. Indicator collections have
+        no legacy rule_json/rule_script, so this is `rule_id` -> None (manual)."""
+        if coll.rule_id is not None:
+            rule = self._session.get(Rule, coll.rule_id)
+            if rule is not None:
+                return rule
+        return None
 
     def add_indicator_to_collection(
         self,

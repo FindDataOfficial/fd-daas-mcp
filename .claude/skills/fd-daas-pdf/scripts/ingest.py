@@ -31,7 +31,7 @@ def main() -> None:
         kv = [f"url={target}"] + extra
     else:
         kv = [f"file_path={target}"] + extra
-    cmd = [str(PY), "-m", "cli_anything.fd_daas_mcp.cli", "pdf",
+    cmd = [str(PY), "-m", "daas.fd_daas_mcp.cli", "pdf",
            "ingest_document", *kv, "--json"]
     sys.exit(subprocess.call(cmd, cwd=str(REPO_ROOT)))
 

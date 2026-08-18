@@ -1,9 +1,9 @@
 """Registration report: registered / failed / skipped_optional."""
 from __future__ import annotations
 
-from cli_anything.fd_daas_mcp import registry
+from daas.fd_daas_mcp import registry
 
-CORE = {"alerts", "cron", "composite", "daas", "dashboard", "leader"}
+CORE = {"alerts", "cron", "composite", "daas", "dashboard", "gateway"}
 
 
 def test_report_has_three_keys():

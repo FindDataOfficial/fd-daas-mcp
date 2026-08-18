@@ -1,41 +1,34 @@
-# cli-anything
+# DAAS - Data As a Service
 
-Skill-driven data fetch for financial, economic, and statistical data — built on [CLI-Anything](https://github.com/HKUDS/CLI-Anything).
+Layered data platform for financial, economic, and statistical data — a single SQLite file (`daas.db`) behind a consolidated MCP server, with data fetch delegated down to the `fd-open-data-mcp` upstream.
 
-> **What is this?** A local data platform that turns Python data libraries (`akshare`, `yfinance`, `edgar`, `edinet-tools`, `dartlab`, `world_bank_data`, `ckanapi`) into a queryable, indicator-computing, dashboard-ready store backed by a single SQLite file (`daas.db`). You can drive it through **Claude Code skills** or through a **consolidated MCP server** — both paths read/write the same database.
+> **What is this?** A local data platform that turns Python data libraries (`akshare`, `yfinance`, `edgar`, `edinet-tools`, `dartlab`, `world_bank_data`, `ckanapi`) into a queryable, indicator-computing, dashboard-ready store backed by one SQLite file. You drive it through **Claude Code skills** (thin shells that call workflow manifests) or through the **consolidated `fd-daas-mcp` MCP server** — both paths read/write the same database.
 
-> **Upstream:** The `CLI-Anything/` directory is the upstream project (do not modify). Everything else in this repo is the data-fetch layer built on top of it.
+> **Upstream:** The `CLI-Anything/` directory is the upstream project (do not modify). The `fd-open-data-mcp` data-fetcher is a sibling repo at `~/finddata/fd-open-data-mcp`.
 
-> **Docs site:** The full, role-based documentation lives at `docs-site/` (MkDocs Material). Read it locally with `uv run mkdocs serve` (browses at `/DAAS/`), or build strictly with `uv run mkdocs build --strict`. See [`docs-site/README.md`](docs-site/README.md) for build/serve/deploy.
+> **Docs site:** The full, role-based documentation lives at `docs-site/` (MkDocs Material, EN+ZH bilingual). Read it locally with `uv run mkdocs serve` (browses at `/DAAS/`), or build strictly with `uv run mkdocs build --strict`. See [`docs-site/README.md`](docs-site/README.md) for build/serve/deploy.
 
 ---
 
 ## Architecture
 
-Two access paths share one SQLite database:
+Strict downward dependency — a layer never reaches up.
 
 ```
-                         ┌──────────────────────────────────────────┐
-   Skill path            │           daas.db (SQLite)               │
-   (Claude Code skills)  │   registry · entities · indicator_rules  │
-      │                  │   observations  ·  scraw_*               │
-      │                  └──────────────────────────────────────────┘
-      ▼                              ▲
- .claude/skills/                     │
- skill-based-data-fetch ── Python ───┘
-   libs (akshare/yfinance/…)         │
-      + sqlite3                      │
-                                     │ MCP path
-                                     │ (fd-daas-mcp server, 176 tools / 7 groups)
- .mcp.json ── fd-daas-mcp ───────────┘
-              (sole entry)            alerts · composite · cron · daas
-                                      dashboard · leader · pdf
+L3  user MCP compositions  (composite manifests, served in-proc on fd-daas-mcp)
+L2  workflow manifests      (daas.db `workflows` table + engine, run via workflow_run)
+L1  fd-daas-mcp            (consolidated infra: daas/cron/alerts/dashboard/composite/research/pdf/gateway/workflow)
+L0  fd-open-data-mcp       (sole data-fetch upstream; concept-based semantic fetcher + entity master)
 ```
 
-- **Skill path** — skills call Python data libraries **directly** and read/write `daas.db` via `sqlite3`. The core fetch skill is [`skill-based-data-fetch`](.claude/skills/skill-based-data-fetch/SKILL.md). No MCP round-trip, no network beyond the library itself.
-- **MCP path** — the consolidated **`fd-daas-mcp`** server is the sole entry in repo-root [`.mcp.json`](.mcp.json). It exposes **176 tools across 7 groups** behind one stdio server and one `fd-daas-mcp` Click CLI. Use it for catalog browsing, cron scheduling, alerts, dashboards, workflow orchestration, and PDF semantic search.
+- **L0 — fd-open-data-mcp** (sibling repo): the sole data-fetch surface. A concept-based semantic fetcher with ranking/failover/caching; holds the entity master (`entities`, `entity_datasource_links`). Served HTTP at `:8300` (stdio fallback). Replaces the 11 former per-source data-fetch MCPs.
+- **L1 — fd-daas-mcp** (this repo): the consolidated stdio server, sole entry in repo-root [`.mcp.json`](.mcp.json). Exposes **161 tools across 9 groups** (`daas · cron · alerts · dashboard · composite · research · pdf · gateway · workflow`) behind one server and one `fd-daas-mcp` Click CLI. The thin consolidation layer is `fd-daas-mcp/daas/fd_daas_mcp/` (`server.py`/`registry.py`/`cli.py`/`selfcheck.py`); each group's tool code lives in-package at `fd-daas-mcp/<group>-mcp/`.
+- **L2 — workflow manifests**: manifests live in the `workflows` table in `daas.db` (registered via `workflow_register`, run via `workflow_run`). `build_workflow_from_goal` decomposes a natural-language goal into a manifest via an LLM.
+- **L3 — user MCP composition**: a composite manifest (`{name, upstreams, tools, workflows, prompt}`) curates a named MCP surface served in-proc on the consolidated server. CRUD via `composite_*_manifest`.
 
-Both paths are first-class. Skills are simpler and offline-friendly; the MCP server is richer (scheduling, alerts, orchestration).
+The fetch skills (`fd-daas-based-data-fetch`, `fd-daas-fetch-data`, `fd-daas-research`) are thin shells: parameter-gathering → `workflow_run(name, params)` → checkpoint handling. They no longer call Python data libraries directly — fetch goes down through L1→L0.
+
+For the full architecture, conventions, and the `daas.db` schema reference, see [`CLAUDE.md`](CLAUDE.md) and [`construction/mcp.md`](construction/mcp.md).
 
 ---
 
@@ -47,49 +40,57 @@ Requirements: Python 3.10+ and [uv](https://docs.astral.sh/uv/). `dartlab` fetch
 # 1. Provision the root venv (data libs are declared deps)
 uv sync
 
-# 2. Configure credentials - create a repo-root .env (keys listed in Environment Variables below)
-#    At minimum: DAAS_DATABASE_URL=sqlite:///daas.db  (+ the source keys you need)
-#    Scripts auto-load .env; no manual export needed.
+# 2. Provision the database - creates daas.db (full schema + dep-free starter
+#    catalog of sources). DAAS_DATABASE_URL is OPTIONAL: unset, it defaults to
+#    ./daas.db (writable cwd) or ~/.fd-daas-mcp/daas.db. Set it only to relocate.
+fd-daas-mcp/.venv/bin/fd-daas-mcp init       # one-shot provision + seed
+fd-daas-mcp/.venv/bin/fd-daas-mcp doctor      # read-only health check (path, schema, row counts)
 
-# 3. Skill path — list the source dispatch shapes (akshare_ / yfinance_ / edgar_ / …)
-uv run python .claude/skills/skill-based-data-fetch/scripts/dispatch.py
+# 3. Configure credentials - create a repo-root .env for the source keys you need
+#    (listed in Environment Variables below). Scripts auto-load .env; no manual export.
 
-# 4. Skill path — compute an existing indicator (upserts into observations)
-uv run python .claude/skills/skill-based-data-fetch/scripts/run_indicator.py SPY_ma5
+# 4. Compute an existing indicator (upserts into observations)
+uv run python .claude/skills/fd-daas-based-data-fetch/scripts/run_indicator.py SPY_ma5
 
-# 5. Query daas.db directly (db lives at the repo root)
+# 5. Query daas.db directly (db lives at the resolved DAAS_DATABASE_URL, default ./daas.db)
 sqlite3 daas.db "SELECT name, datasource, op FROM indicator_rules LIMIT 10"
 sqlite3 daas.db "SELECT source, COUNT(*) FROM observations GROUP BY source"
 
-# 6. MCP path — launch / health-check the consolidated server
+# 6. Launch / health-check the consolidated server
 fd-daas-mcp/bin/fd-daas-mcp-server                       # stdio server (what .mcp.json launches)
-fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.selfcheck   # registry + tool health check
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.selfcheck   # registry + tool health check (target: failed=0)
+
+# 7. Run a workflow manifest (L2 — the fetch path goes L1→L0)
+fd-daas-mcp/.venv/bin/python -c "
+from daas_mcp_workflow_tools import workflow_run   # or via the MCP tool
+print(workflow_run('fetch-and-persist', params_json='{\"entity\":\"SPY\",\"indicator\":\"ma5\"}'))
+"
 ```
 
-The Quick Start commands above have been verified against this repo: `SPY_ma5` is a real `indicator_rules` row (139 rules total), `daas.db` holds 29,579 observations across 21 sources, and the `fd-daas-mcp` registry reports 176 tools across 7 groups.
-
-For the full architecture, conventions, and the `daas.db` schema reference, see [`CLAUDE.md`](CLAUDE.md).
+The Quick Start commands above have been verified against this repo: `SPY_ma5` is a real `indicator_rules` row, and the `fd-daas-mcp` registry reports **161 tools across 9 sources** (`failed=0, skipped_optional=1` for the optional `pdf` group).
 
 ---
 
 ## Project Structure
 
 ```
-cli-anything/
-├── .claude/skills/          # Claude Code skills (skill-based-data-fetch is the core fetch skill)
-├── fd-daas-mcp/             # Consolidated MCP server — sole .mcp.json entry (176 tools, 7 groups)
+daas/
+├── .claude/skills/          # Claude Code skills (fd-daas-based-data-fetch is the core fetch shell)
+├── fd-daas-mcp/             # Consolidated MCP server — sole .mcp.json entry (161 tools, 9 groups)
 │   ├── alerts-mcp/          #   alert rule engine + 7 notification channels
-│   ├── composite-mcp/       #   chained-tool pipelines over upstream MCPs
+│   ├── composite-mcp/       #   user MCP composition (curate tools + embed workflows + prompt)
 │   ├── cron-mcp/            #   task + schedule registry (DB-backed)
-│   ├── daas-mcp/            #   datasource/function/indicator/entity catalog + compute
+│   ├── daas-mcp/            #   datasource/function/indicator/entity catalog + compute + rules
 │   ├── dashboard-mcp/       #   standalone-HTML dashboard registry + query
-│   ├── leader-mcp/          #   CrewAI data-fetch workflow orchestration
+│   ├── gateway-mcp/         #   L0 upstream registry + call routing (former leader gateway half)
+│   ├── workflow-mcp/        #   manifest-based multi-step data workflows (former leader workflow half)
 │   ├── pdf-mcp/             #   local PDF/text semantic search (sqlite-vec) [optional]
+│   ├── research-mcp/        #   persisted research bundle (collections + indicators + dashboard + report)
 │   ├── bin/fd-daas-mcp-server      # launcher
-│   └── cli_anything/fd_daas_mcp/   # server.py / registry.py / cli.py / selfcheck.py
+│   └── daas/fd_daas_mcp/   # server.py / registry.py / cli.py / selfcheck.py
 ├── daas.db                  # Shared SQLite database (ships as a demo dataset: registry + observations + scraw_*)
 ├── dashboards/              # Standalone HTML dashboards (+ index.html, daas.md)
-├── construction/            # Architecture docs (mcp.md)
+├── construction/            # Architecture docs (mcp.md — layered L0/L1/L2/L3)
 ├── CLI-Anything/            # Upstream (do not modify)
 └── .env                     # DAAS_DATABASE_URL, proxy, source auth keys, LLM config, ...
 ```
@@ -98,56 +99,61 @@ cli-anything/
 
 ## `daas.db` Data Model
 
-One SQLite file at the path in `DAAS_DATABASE_URL` (resolved against the repo root). Tables group by role:
+One SQLite file at the path in `DAAS_DATABASE_URL` (relative `sqlite:///` paths resolve against repo root; `PRAGMA foreign_keys=ON` for FK cascade, `PRAGMA journal_mode=WAL` + `busy_timeout=10000` to dodge "database is locked"). Tables group by role:
 
 | Role | Tables | What they hold |
 |---|---|---|
 | **Registry / catalog** | `sources`, `daas_functions`, `daas_function_columns`, `entities`, `entity_datasource_links`, `indicator_rules` | Datasource/function/column catalog; stocks/countries + their source identifiers; indicator bindings (table + columns + op + params) |
 | **Computed series** | `observations` | Indicator output — one `(source, function_name, indicator, date)` point per row; upserted by `run_indicator.py`. Dashboards & alerts read this. |
 | **Fetched source data** | `scraw_<slug>` | Raw rows pulled by a fetch (auto-created by `upsert.py`). `observations` are computed *from* these. |
-| **Collections** | `entity_collections`, `indicator_collections`, `*_items`, `*_changes` | Named groups of entities/indicators + add-in/remove-out audit log |
-| **MCP operational** | `dashboards`, `alert_rules`, `alert_events`, `schedules`, `tasks`, `leader_upstreams`, `workflows`, … | Dashboard registry, alert engine, cron state, leader/workflow state |
+| **Collections + rules** | `entity_collections*`, `indicator_collections*`, `rules`, `process_results` | Named groups of entities/indicators + add-in/remove-out audit log; the unified `rules` store (json/script/position/llm) drives membership + LLM extraction |
+| **MCP operational** | `dashboards`, `alert_rules`, `alert_events`, `schedules`, `tasks`, `gateway_upstreams`, `workflows`, `workflow_runs`, `workflow_run_steps`, `composites`, `researches` | Dashboard registry, alert engine, cron state, gateway/workflow/composite/research state |
 
-Query it directly from the repo root: `sqlite3 daas.db "SELECT …"` (`PRAGMA foreign_keys=ON` for FK cascade).
+Query it directly from the repo root: `sqlite3 daas.db "SELECT …"`.
 
 ---
 
 ## Skills (`.claude/skills/`)
 
-Skills are plain Markdown (`SKILL.md`) + Python scripts; they use `sqlite3` directly and never call an MCP tool.
+Skills are plain Markdown (`SKILL.md`) + Python scripts. The fetch skills are thin shells that gather parameters and call `workflow_run` — they no longer call Python data libraries directly (fetch goes L1→L0).
 
 | Skill | Purpose |
 |---|---|
-| **`skill-based-data-fetch`** *(core)* | Resolve an entity + indicator against `daas.db`, call the Python lib directly, persist to `scraw_*` / `observations`. |
+| **`fd-daas-based-data-fetch`** *(core fetch shell)* | Resolve an entity + indicator against `daas.db`, then `workflow_run(name, params)` to fetch via fd-open-data-mcp and persist to `scraw_*` / `observations`. |
 | `fd-daas-fetch-data` | Entity → coverage → indicator workflow (sqlite3 + the core scripts). |
-| `fd-daas-data-fetch` | Locate the source/function for an entity+indicator, register it, install deps, run the fetch. |
+| `fd-daas-research` | Orchestrate analyze → [collection] → indicators → dashboard → persist as a `research` bundle + markdown report. |
+| `fd-daas-brainstorm` | Clarify a research goal via dialogue → `daas-doc/research/<plan>.md` (no `daas.db` state). |
 | `fd-daas-indicators-creator` | Persist a fetched series to a `scraw_<slug>` table (manual refresh — no cron). |
 | `fd-daas-dashboard-creator` | Build a standalone ECharts HTML dashboard + register it. |
 | `fd-daas-dashboard` | Find / open / inspect existing dashboards (read-only). |
-| `fd-daas-research` | Orchestrate analyze → [collection] → indicators → dashboard. |
-| `fd-daas-entities-collection-creator` | Define a rule-based entity collection (declarative JSON or Python rule script). |
-| `fd-daas-entities-collection` | Day-to-day entity/collection operations (list, add/remove, sync, audit). |
+| `fd-daas-entities-collection-creator` / `fd-daas-entities-collection` | Define a rule-based entity collection / day-to-day collection operations. |
 | `fd-daas-indicators-collection-creator` | Curate an indicator collection + export CSV/markdown with resolved scores. |
+| `fd-daas-rules-creator` | Author a unified rule (json/script/position/llm), attach to a collection, dry-run, sync. |
 | `fd-daas-pdf` | Ingest a PDF/text into a local vector store (sqlite-vec) and search semantically. Requires the `[pdf]` extra. |
 | `fd-daas-scrapling-official` | Scrape anti-bot-protected pages (Cloudflare/JS render) via Scrapling. |
-| `fd-daas-visualize` | Scaffold an ECharts page in the Next.js dashboard app. |
-| `fd-skill-creator`, `openspec-*` | Infra: create/optimize skills; OpenSpec change lifecycle. |
+| `fd-daas-skill-creator` / `fd-daas-skill-review` | Create/optimize and review/test daas skills. |
+| `fd-coding-mcp-creator` | Scaffold a user MCP composition (L3): interview → manifest → register → selfcheck. |
+| `fd-coding-skill-creator`, `fd-coding-daas-*`, `openspec-*` | Infra: create/optimize skills, reset/scraw/datasource builders, OpenSpec change lifecycle. |
 
 ---
 
 ## MCP Tool Groups (`fd-daas-mcp`)
 
-The consolidated server exposes **176 tools across 7 groups**. Catalog is group-level (per-tool detail via the server's own introspection / `selfcheck`).
+The consolidated server exposes **161 tools across 9 groups** (`failed=0, skipped_optional=1` for the optional `pdf` group). Catalog is group-level (per-tool detail via the server's own introspection / `selfcheck`).
 
-| Group | Prefix | Purpose |
-|---|---|---|
-| **daas** | `daas_*` | Datasource/function/column/entity/indicator catalog, indicator compute, LLM extraction, collections, entity coverage. |
-| **dashboard** | `dashboard_*` | Standalone-HTML dashboard registry (CRUD), table query, stats, index regeneration. |
-| **alerts** | `alerts_*` | Alert rule engine over observation series + 7 notification channels (Telegram/Discord/Slack/Twitter/DingTalk/Feishu/WeCom). |
-| **cron** | `cron_*` | DB-backed task + schedule registry; ad-hoc `run_now`; execution history. |
-| **leader** | `leader_*` | CrewAI data-fetch orchestration: specialist agents, workflows, multi-step runs, model tiers. |
-| **composite** | `composite_*` | Chained-tool pipelines composing upstream MCP tools into linear workflows. |
-| **pdf** | `pdf_*` | Local PDF/text semantic search (sqlite-vec + sentence-transformers). Optional — gated on the `sqlite_vec` import. |
+| Group | Prefix | Tools | Purpose |
+|---|---|---|---|
+| **daas** | `daas_*` | 87 | Datasource/function/column/entity/indicator catalog, indicator compute, LLM extraction, collections, entity coverage, unified rules. |
+| **dashboard** | `dashboard_*` | 11 | Standalone-HTML dashboard registry (CRUD), table query, stats, index regeneration. |
+| **alerts** | `alerts_*` | 10 | Alert rule engine over observation series + 7 notification channels (Telegram/Discord/Slack/Twitter/DingTalk/Feishu/WeCom). |
+| **cron** | `cron_*` | 13 | DB-backed task + schedule registry; ad-hoc `run_now`; execution history. |
+| **composite** | `composite_*` | 16 | User MCP composition (L3): curate tools from upstreams + embed workflows + prompt. |
+| **research** | `research_*` | 9 | Persisted research bundle tying collections/indicators/dashboard/pipeline + markdown report. |
+| **gateway** | `gateway_*` | 7 | L0 upstream registry CRUD + call routing to `fd-open-data-mcp` (former `leader` gateway half). |
+| **workflow** | `workflow_*` | 8 | Manifest-based multi-step data fetches: register/run/resume/inspect (former `leader` workflow half). |
+| **pdf** | `pdf_*` | — | Local PDF/text semantic search (sqlite-vec + sentence-transformers). Optional — gated on the `sqlite_vec` import. |
+
+> The legacy `leader` group is dissolved: its gateway-routing half became `gateway_*`, its workflow-manifest half became `workflow_*`. Harness-registry / snapshot / provenance capabilities are deleted.
 
 Launch: `fd-daas-mcp/bin/fd-daas-mcp-server` (stdio). Both the server and the `fd-daas-mcp` CLI consume `registry.build()`, so the two surfaces cannot drift.
 
@@ -159,14 +165,13 @@ A single repo-root `.env` holds all config; scripts and the MCP server auto-load
 
 | Key | Purpose | Required? |
 |---|---|---|
-| `DAAS_DATABASE_URL` | `sqlite:///` URL to `daas.db` (relative resolved against repo root, or absolute). | yes |
+| `DAAS_DATABASE_URL` | `sqlite:///` URL to `daas.db` (relative resolved against repo root, or absolute). Optional: unset, defaults to `./daas.db` (writable cwd) or `~/.fd-daas-mcp/daas.db`. Run `fd-daas-mcp init` to provision. | optional |
 | `HTTP_PROXY` | Outbound proxy for data libraries. | optional |
 | `EDGAR_IDENTITY` | SEC EDGAR identity string (`"Name email@domain"`). | for edgar |
 | `EDINET_API_KEY` | Japan EDINET document fetch key. | for edinet |
-| `MASSIVE_API_KEY` | Massive.com REST API key. | for massive |
 | `CKAN_PORTAL_URL` | CKAN portal base URL. | for ckan |
-| `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | Shared LLM endpoint for extraction / leader fallback. | for LLM features |
-| `LEADER_MODELS`, `LEADER_MODEL_HIGH/BALANCE/FAST` | Per-tier model overrides for leader-mcp. | optional |
+| `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | Shared LLM endpoint for extraction / workflow planner. | for LLM features |
+| `LEADER_MODELS`, `LEADER_MODEL_HIGH/BALANCE/FAST` | Per-tier model overrides for the workflow planner (`build_workflow_from_goal`). Names retained; only descriptive label is "workflow planner". | optional |
 | `ALERTS_FEISHU_WEBHOOK_URL` | Feishu webhook for the alerts channel. | for feishu alerts |
 | `DASHBOARD_PORT` | Port for the dashboard app. | optional |
 
@@ -176,11 +181,11 @@ A single repo-root `.env` holds all config; scripts and the MCP server auto-load
 
 If you are an AI agent (e.g. Claude Code) operating in this repo:
 
-- **Prefer the skill path for fetching data.** Use `skill-based-data-fetch`: resolve the entity + indicator against `daas.db` via `sqlite3`, call the Python lib directly, persist with `upsert.py` / `run_indicator.py`. The dispatch table is at `.claude/skills/skill-based-data-fetch/scripts/dispatch.py` — run `uv run python …/dispatch.py --resolve <func>` to get the call shape for a function.
-- **Workflow:** resolve → fetch → persist. Resolve entity+indicator in `daas.db`; fetch via the Python lib; persist into `scraw_<slug>` (raw) or `observations` (computed indicator).
-- **Use the MCP path for everything else** — catalog browsing, creating indicators/collections, cron scheduling, alerts, building/finding dashboards, PDF semantic search, multi-step data workflows. These are the `fd-daas-mcp` tools (176 across 7 groups).
-- **Query `daas.db` with `sqlite3` from the repo root** (`sqlite3 daas.db "…"`). The DB lives at the repo root, not under `mcp/`. Use `PRAGMA foreign_keys=ON` for FK cascade.
-- **Authoritative architecture + schema reference:** [`CLAUDE.md`](CLAUDE.md) (it has a `## daas.db` section listing every table).
+- **Fetch data through the workflow path.** Use `fd-daas-based-data-fetch`: resolve the entity + indicator against `daas.db` via `sqlite3`, then `workflow_run(name, params)` — the manifest routes the fetch down through `gateway_call` → `fd-open-data-mcp` (L0) and persists into `scraw_<slug>` / `observations`. For multi-step fetches, `build_workflow_from_goal` emits a manifest.
+- **Workflow:** resolve → fetch (via L0) → persist. Resolve entity+indicator in `daas.db`; fetch via the gateway; persist into `scraw_<slug>` (raw) or `observations` (computed indicator).
+- **Use the MCP server for everything else** — catalog browsing, creating indicators/collections/rules, cron scheduling, alerts, building/finding dashboards, PDF semantic search, composite authoring, research bundles. These are the `fd-daas-mcp` tools (161 across 9 groups).
+- **Query `daas.db` with `sqlite3` from the repo root** (`sqlite3 daas.db "…"`). Use `PRAGMA foreign_keys=ON` for FK cascade.
+- **Authoritative architecture + schema reference:** [`CLAUDE.md`](CLAUDE.md) (it has a `## daas.db` section listing every table) and [`construction/mcp.md`](construction/mcp.md) (the layered L0/L1/L2/L3 reference).
 
 ---
 

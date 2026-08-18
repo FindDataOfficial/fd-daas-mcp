@@ -116,6 +116,7 @@ nav:
   - MCP Tools:
       - Overview: mcp/index.md
       - Tool Groups: mcp/groups.md
+      - Compose an MCP: mcp/composite.md
   - Contributor Guide:
       - Overview: contributor/index.md
       - Author a Skill: contributor/author-skill.md

@@ -3,18 +3,17 @@ from __future__ import annotations
 
 import threading
 
-from cli_anything.fd_daas_mcp import registry
+from daas.fd_daas_mcp import registry
 
-CORE = {"alerts", "cron", "composite", "daas", "dashboard", "leader"}
+CORE = {"alerts", "cron", "composite", "daas", "dashboard", "gateway"}
 EXPECTED_COLLISIONS = {
-    "search_functions", "run_rule",
-    "list_datasources", "list_categories", "get_function_detail",
+    "create", "list", "get", "update", "delete",
 }
 
 
-def test_build_returns_at_least_170_tools():
+def test_build_returns_at_least_155_tools():
     tools = registry.build()
-    assert len(tools) >= 170, f"too few tools: {len(tools)}"
+    assert len(tools) >= 155, f"too few tools: {len(tools)}"
 
 
 def test_all_six_core_groups_present():

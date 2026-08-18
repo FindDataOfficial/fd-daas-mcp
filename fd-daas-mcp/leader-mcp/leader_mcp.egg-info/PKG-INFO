@@ -1,7 +1,0 @@
-Metadata-Version: 2.4
-Name: leader-mcp
-Version: 0.1.0
-Summary: Multi-Harness Registry MCP Server
-Requires-Python: >=3.11
-Requires-Dist: fastmcp>=2.0
-Requires-Dist: sqlalchemy>=2.0

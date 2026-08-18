@@ -13,13 +13,11 @@
   ul#dashboards a:hover { text-decoration: underline; }
   ul#dashboards small { color: #666; font-size: 12px; }
   .empty { color: #888; }
-  
 </style>
 </head>
 <body>
 <h1>Dashboards</h1>
-<ul id="dashboards"><li><a href="us-leaders-trend-monitor.html">强势股趋势监控 — Phase 1 MVP</a><br><small>Livermore×O'Neil 强势股趋势监控看板。展示美股 leadership 候选标的的日行情（OHLCV）与趋势指标（MA5/10/20、RSI14、20日波动率、20日新高）每日快照，用于识别处于趋势确立 / 加速阶段的强势股。Phase 1 MVP。</small></li>
-<li><a href="aapl-daily-snapshot.html">AAPL 日行情快照</a><br><small>Apple Inc. (AAPL) 日收盘价看板。展示 scraw_aapl_daily 表中的每日收盘价，支持按时间区间筛选，用于快速查看 AAPL 近一年走势。</small></li>
-<li><a href="daas-indicator-explorer.html">DaaS 指标浏览器</a><br><small>DaaS 全量指标浏览器。在一个页面里浏览 daas 计算出的每一个指标：从指标目录（136 条有数据 + 3 条已注册但源表缺失）中任选一个，查看其时间序列、来源（源表 / 值列 / op / 规则名）与快速统计（最新值、环比、最小/最大、行数、日期范围）。覆盖 yfinance 个股技术指标（12 只标的 × MA5/10/20、RSI14、20日波动率、20日新高）与 massive 宏观序列（国债收益率、通胀、通胀预期、劳动力市场，跨 level/SMA/EMA/zscore/pct_change/rolling_std）。用于回答「daas 里有哪些指标，长什么样」。静态快照，重新生成以刷新。</small></li></ul>
+<ul id="dashboards"><li><a href="us-leaders-trend-monitor.html">强势股趋势监控 - Phase 2 (动态池A)</a><br><small>Livermore×O'Neil 强势股趋势监控 Phase 2 动态池。龙头池=池A:S&amp;P500 top300成交额筛出 × 7/20/60/120日涨幅Top5并集(当前17只),由 scraw_us_top300_screen + us_leadership_pool rule_script 动态派生。龙头榜含成交额排名/MA/RSI/volstd/距高点/多周期RS涨幅/20日新高/60d排名,可排序;RS排名条形图;大盘温度计;逐只详情;全龙头RSI14。基准 SPY/QQQ。日K快照,重跑 build_us_leaders_dashboard.py 刷新。</small></li>
+<li><a href="aapl-daily-snapshot.html">AAPL 日行情快照</a><br><small>Apple Inc. (AAPL) 日收盘价看板。展示 scraw_aapl_daily 表中的每日收盘价，支持按时间区间筛选，用于快速查看 AAPL 近一年走势。</small></li></ul>
 </body>
 </html>

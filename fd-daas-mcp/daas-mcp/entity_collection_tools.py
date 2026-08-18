@@ -33,6 +33,7 @@ def create_entity_collection(
     description: Optional[str] = None,
     rule: Optional[str] = None,
     rule_script: Optional[str] = None,
+    rule_id: Optional[int] = None,
 ) -> dict:
     """Create a named entity collection (watchlist / portfolio).
 
@@ -53,8 +54,8 @@ def create_entity_collection(
     """
     svc = _svc()
     rule_obj = json.loads(rule) if rule else None
-    if rule and rule_script:
-        return {"error": "a collection may have either a rule or a rule_script, not both"}
+    if sum(x is not None for x in (rule, rule_script, rule_id)) > 1:
+        return {"error": "a collection may have at most one of rule_id, rule, rule_script"}
     try:
         return _ok(
             svc.create_entity_collection(
@@ -62,6 +63,7 @@ def create_entity_collection(
                 description=description,
                 rule=rule_obj,
                 rule_script=rule_script,
+                rule_id=rule_id,
             )
         )
     except Exception as e:
@@ -93,6 +95,7 @@ def update_entity_collection(
     rule: Optional[str] = None,
     clear_rule: bool = False,
     rule_script: Optional[str] = None,
+    rule_id: Optional[int] = None,
 ) -> dict:
     """Partially update an entity collection's name and/or description and/or
     rule. At least one field must be provided. `clear_rule=True` resets the
@@ -107,8 +110,8 @@ def update_entity_collection(
     """
     svc = _svc()
     rule_obj = json.loads(rule) if rule else None
-    if rule and rule_script:
-        return {"error": "a collection may have either a rule or a rule_script, not both"}
+    if sum(x is not None for x in (rule, rule_script, rule_id)) > 1:
+        return {"error": "a collection may have at most one of rule_id, rule, rule_script"}
     try:
         return _ok(
             svc.update_entity_collection(
@@ -118,6 +121,7 @@ def update_entity_collection(
                 rule=rule_obj,
                 clear_rule=clear_rule,
                 rule_script=rule_script,
+                rule_id=rule_id,
             )
         )
     except Exception as e:

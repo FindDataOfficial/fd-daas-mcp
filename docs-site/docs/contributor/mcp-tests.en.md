@@ -36,7 +36,7 @@ sets `PYTHONPATH` and execs `.venv/bin/python -m daas.fd_daas_mcp.server`.
 ```
 fd-daas-mcp/
   daas/fd_daas_mcp/    # server.py / registry.py / cli.py / selfcheck.py
-  <group>-mcp/         # alerts/cron/composite/daas/dashboard/leader/pdf/research
+  <group>-mcp/         # alerts/cron/composite/daas/dashboard/gateway/workflow/pdf/research
   bin/fd-daas-mcp-server
   tests/               # offline pytest suite
   pyproject.toml

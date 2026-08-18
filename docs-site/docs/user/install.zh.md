@@ -32,7 +32,7 @@ cp .env.example .env   # 若有模板；否则新建 .env
 | `EDGAR_IDENTITY` | 你的 SEC EDGAR user agent。 |
 | `EDINET_API_KEY` | 日本 EDINET API key。 |
 | `ALERTS_FEISHU_WEBHOOK_URL` | 用于告警投递的飞书 webhook。 |
-| `LLM_*` / `LEADER_MODEL*` | Leader agent（CrewAI 工作流）模型配置。 |
+| `LLM_*` / `LEADER_MODEL*` | Gateway/workflow agent 模型配置。 |
 | `DASHBOARD_PORT` | 看板服务器端口。 |
 | `CKAN_PORTAL_URL` | CKAN portal 基础 URL。 |
 

@@ -24,7 +24,7 @@ from fastmcp import FastMCP
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from models import Base, Datasource, DatasourceColumn, Dashboard, Execution, Schedule, Task, Function
+from models import Base, Datasource, DatasourceColumn, Dashboard, Execution, Schedule, Task
 
 from dashboard_database import DashboardDatabase
 
@@ -196,13 +196,10 @@ def get_stats() -> str:
     try:
         session = _get_session()
         try:
-            stats["functions"] = session.query(Function).count()
             stats["datasources"] = session.query(Datasource).count()
             stats["schedules"] = session.query(Schedule).count()
             stats["executions"] = session.query(Execution).count()
             stats["tasks"] = session.query(Task).count()
-            harnesses = session.query(Function.harness).distinct().count()
-            stats["harnesses"] = harnesses
         finally:
             session.close()
     except Exception as e:
@@ -220,7 +217,7 @@ def get_stats() -> str:
 # ─────────────────────────────────────────────────────────────────
 
 @app.tool
-def register_dashboard(slug: str, name: str, intro: str, source_tables, refresh_cadence: str,
+def register(slug: str, name: str, intro: str, source_tables, refresh_cadence: str,
                        file_path: str, file_url: str, entity_coverage=None, time_range=None,
                        chart_config=None) -> str:
     """Register or update (upsert by slug) a standalone HTML dashboard in the
@@ -235,7 +232,7 @@ def register_dashboard(slug: str, name: str, intro: str, source_tables, refresh_
 
 
 @app.tool
-def list_dashboards() -> str:
+def list() -> str:  # noqa: A004 (intentional: registers as dashboard_list)
     """List every registered dashboard (name + slug + intro + file_url), oldest
     first. Returns a JSON array."""
     db = DashboardDatabase()
@@ -243,7 +240,7 @@ def list_dashboards() -> str:
 
 
 @app.tool
-def get_dashboard(slug: str) -> str:
+def get(slug: str) -> str:
     """Get one dashboard's full metadata by slug: name, intro, source_tables,
     entity_coverage, time_range, refresh_cadence, chart_config, file_path,
     file_url. Returns `{"error": "dashboard '<slug>' not found"}` if absent."""
@@ -252,7 +249,7 @@ def get_dashboard(slug: str) -> str:
 
 
 @app.tool
-def search_dashboards(keyword: str) -> str:
+def search(keyword: str) -> str:
     """Case-insensitive keyword search over each dashboard's name + intro +
     refresh_cadence + source_tables. Returns matching `{slug, name, intro}`
     entries, or an empty array if none match."""
@@ -261,7 +258,7 @@ def search_dashboards(keyword: str) -> str:
 
 
 @app.tool
-def update_dashboard(slug: str, name=None, intro=None, source_tables=None,
+def update(slug: str, name=None, intro=None, source_tables=None,
                      entity_coverage=None, time_range=None, refresh_cadence=None,
                      chart_config=None, file_path=None, file_url=None) -> str:
     """Patch one or more fields of an existing dashboard (by slug). Only the
@@ -274,7 +271,7 @@ def update_dashboard(slug: str, name=None, intro=None, source_tables=None,
 
 
 @app.tool
-def delete_dashboard(slug: str) -> str:
+def delete(slug: str) -> str:
     """Delete a dashboard row by slug and regenerate index.html + daas.md. The
     HTML file itself is NOT removed (only the registry row). Returns
     `{"deleted": slug}` or `{"error": ...}`."""

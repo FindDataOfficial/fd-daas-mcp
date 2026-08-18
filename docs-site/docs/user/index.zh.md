@@ -8,7 +8,7 @@ DAAS 是一个本地数据平台。开箱即用：
 
 - **约 5,600 个实体** -- 5,575 只股票 + 60 个国家，每个都可关联到其数据源标识符。
 - **数百条预置指标规则**（随着你接入数据源可扩展到上千条）-- 均线、RSI、滚动波动率、涨跌幅、z-score 以及宏观/经济序列。
-- **8 个 MCP 工具组**（alerts、cron、composite、daas、dashboard、leader、pdf、research），用于浏览、调度、告警和编排。
+- **9 个 MCP 工具组**（alerts、cron、composite、daas、dashboard、gateway、workflow、pdf、research），用于浏览、调度、告警和编排。
 - **40+ 技能**，封装常见工作流（获取、研究、看板、集合、PDF 搜索、网页抓取）。
 
 ## 如何与 DAAS 交互

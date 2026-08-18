@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # fd-daas-mcp server launcher - portable, self-locating.
 #
-# Resolves its own directory, sets PYTHONPATH so the `cli_anything` package
+# Resolves its own directory, sets PYTHONPATH so the `daas` package
 # imports, and execs the consolidated server module with the project .venv
 # python (falling back to `python3` on PATH if the .venv is absent).
 #
@@ -22,7 +22,7 @@ else
     PY="python3"
 fi
 
-# `cli_anything` lives at $FD_HOME/; put it on PYTHONPATH for `-m` discovery.
+# `daas` lives at $FD_HOME/; put it on PYTHONPATH for `-m` discovery.
 export PYTHONPATH="$FD_HOME${PYTHONPATH:+:$PYTHONPATH}"
 
-exec "$PY" -m cli_anything.fd_daas_mcp.server "$@"
+exec "$PY" -m daas.fd_daas_mcp.server "$@"

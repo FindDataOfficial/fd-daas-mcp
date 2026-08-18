@@ -1,28 +1,17 @@
 [project]
-name = "cli-anything"
+name = "daas"
 version = "0.1.0"
-description = "Skill + sqlite data-fetch stack: skills call Python data libraries directly and read/write daas.db via sqlite3. No MCP servers, no fd-* CLIs."
+description = "DAAS - Data As a Service: layered MCP stack. fd-open-data-mcp (sibling repo) owns data-fetch adapters + the entity master; fd-daas-mcp owns daas/cron/alerts/dashboard/composite/research/pdf/gateway/workflow. Fetch goes through workflow manifests, not direct library imports."
 requires-python = ">=3.10"
 dependencies = [
     "pandas>=2.0",
     "numpy>=1.24",
     "requests>=2.31",
-    # Data libraries - imported directly by the skill-based-data-fetch dispatch.
-    # Each is optional at runtime (the skill uses `uv run --with <lib>`), but
-    # listing them here lets `uv sync` provision a working root venv.
-    "akshare>=1.13",
-    "yfinance>=0.2",
-    "edgar>=2.0",
-    "edinet-tools",
-    "world_bank_data>=0.1",
-    "ckanapi>=4.0",
-    # dartlab requires Python >=3.12 - run it via `uv run --python 3.12 --with dartlab ...`
-    # (not declared here so the root venv stays 3.10-compatible).
+    # ponytail: data libs (akshare/yfinance/edgar/edinet-tools/dartlab/
+    # world_bank_data/ckanapi) live in the fd-open-data-mcp sibling repo now;
+    # DAAS talks to it over MCP, so they are not root deps. run_indicator.py
+    # + upsert.py only need pandas/numpy + stdlib sqlite3.
 ]
-
-[tool.uv]
-# dartlab is intentionally NOT a root dep (3.12 floor). Fetch it ad-hoc:
-#   uv run --python 3.12 --with dartlab --with pandas python -c "import dartlab; ..."
 
 # Docs site (docs-site/). The `dev` dependency group is installed by default
 # with `uv sync`, so `uv run mkdocs build` / `uv run mkdocs serve` work as-is.

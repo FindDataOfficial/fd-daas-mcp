@@ -82,11 +82,11 @@ def _make_command(name: str, func: Any) -> click.Command:
 
 
 # Core catalog tables ``init``/``doctor`` verify against. Keep this aligned with
-# models/models.py (DaasSource/DaasFunction/Entity/IndicatorRule/Observation/
-# Rule/...). Listed by name so a missing table is named explicitly.
+# models/models.py (DaasSource/DaasFunction/IndicatorRule/Observation/Rule/...).
+# Listed by name so a missing table is named explicitly.
 _CORE_TABLES = [
     "sources", "daas_functions", "daas_function_columns", "categories",
-    "entities", "entity_datasource_links", "indicator_rules", "observations",
+    "indicator_rules", "observations",
     "rules",
     "entity_collections", "entity_collection_items",
     "indicator_collections", "indicator_collection_items",
@@ -285,7 +285,7 @@ def doctor_cmd(db_url: str | None, as_json: bool) -> None:
         diag["missing_tables"] = [t for t in _CORE_TABLES if t not in tables]
         counts: dict[str, int] = {}
         with engine.connect() as conn:
-            for t in ("sources", "daas_functions", "entities", "indicator_rules", "observations"):
+            for t in ("sources", "daas_functions", "indicator_rules", "observations"):
                 if t in tables:
                     counts[t] = conn.execute(text(f"SELECT COUNT(*) FROM {t}")).scalar() or 0
         diag["row_counts"] = counts

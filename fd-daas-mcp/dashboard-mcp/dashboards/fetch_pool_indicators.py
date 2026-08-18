@@ -9,7 +9,6 @@ SCRIPTS = Path(".claude/skills/fd-daas-based-data-fetch/scripts").resolve()
 sys.path.insert(0, str(SCRIPTS))
 import run_indicator as ri
 
-YFINANCE_ID = 22
 SPECS = [("ma5", "sma", '{"window":5}', "Close"), ("ma10", "sma", '{"window":10}', "Close"),
          ("ma20", "sma", '{"window":20}', "Close"), ("rsi14", "rsi", '{"window":14}', "Close"),
          ("volstd20", "rolling_std", '{"window":20}', "Close"), ("high20", "rolling_max", '{"window":20}', "High")]
@@ -29,19 +28,6 @@ cur = conn.cursor()
 pool_a = [r[0] for r in cur.execute(
     "SELECT symbol FROM scraw_us_top300_screen WHERE in_pool_a=1 ORDER BY symbol").fetchall()]
 print(f"pool A: {len(pool_a)} -> {pool_a}")
-
-# register entities + links
-for sym in pool_a:
-    cur.execute(
-        "INSERT OR IGNORE INTO entities (entity_type, code, name, ticker, country_code, status) "
-        "VALUES ('stock', ?, ?, ?, 'US', 'active')",
-        (sym, sym, sym))
-    eid = cur.execute("SELECT id FROM entities WHERE entity_type='stock' AND code=?", (sym,)).fetchone()[0]
-    cur.execute(
-        "INSERT OR IGNORE INTO entity_datasource_links (entity_id, source_id, identifier_in_source, coverage) "
-        "VALUES (?, ?, ?, 'full')", (eid, YFINANCE_ID, sym))
-conn.commit()
-print("entities + links ensured")
 
 # fetch daily OHLCV
 fetched = []

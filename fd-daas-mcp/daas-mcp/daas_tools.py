@@ -91,8 +91,8 @@ def fetch_data(function_name: str, params_json: str = "{}") -> dict:
         return {"error": f"Invalid params_json: {e}"}
 
     try:
-        from cli_anything.daas.sources.router import SourceRouter
-        from cli_anything.daas.core.exceptions import DAASError
+        from daas.daas.sources.router import SourceRouter
+        from daas.daas.core.exceptions import DAASError
 
         router = SourceRouter()
         result = router.route(function_name, **params)
@@ -367,7 +367,7 @@ def set_collection_item_score(
         return _err(e)
 
 
-def list_collection(collection_name: str) -> dict:
+def list_collection_items(collection_name: str) -> dict:
     """List a collection's items, each resolved to source name and (if set)
     section name + instruction."""
     svc = _get_service()

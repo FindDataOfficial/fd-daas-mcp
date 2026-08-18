@@ -45,15 +45,15 @@ The catalog + data layer.
 - `alerts_run_alert_rule` / `alerts_list_events`
 - `alerts_list_channels`
 
-## leader_*
+## gateway_*
 
-- `leader_ask_data_crew` / `leader_call_data_mcp` / `leader_call_mcp`
-- `leader_add_data_mcp` / `leader_list_data_mcps` / `leader_list_data_mcp_tools`
-- `leader_create_specialist_agent` / `leader_list_specialist_agents`
-- `leader_create_workflow` / `leader_add_workflow_step` / `leader_run_workflow` / `leader_run_workflow_step`
-- `leader_build_workflow_from_goal`
-- `leader_search_registry_functions` / `leader_list_harnesses` / `leader_get_registry_function_detail`
-- `leader_save_snapshot` / `leader_list_snapshots` / `leader_query_snapshots`
+- `gateway_list_data_mcps` / `gateway_list_data_mcp_tools` / `gateway_call_data_mcp`
+- `gateway_add_data_mcp` / `gateway_remove_data_mcp` / `gateway_get_data_mcp` / `gateway_health`
+
+## workflow_*
+
+- `workflow_register` / `workflow_get` / `workflow_list` / `workflow_update` / `workflow_delete`
+- `workflow_run` / `workflow_inspect` / `workflow_resume`
 
 ## pdf_*
 

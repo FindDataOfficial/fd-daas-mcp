@@ -4,7 +4,7 @@
 
 ## 一段话架构
 
-数据获取是**技能驱动**：技能直接调用 Python 数据库（`akshare`、`yfinance`、`edgar`、`edinet-tools`、`dartlab`、`world_bank_data`、`ckanapi`）并通过 `sqlite3` 读写 `daas.db`。统一的 **`fd-daas-mcp`** MCP 服务器是 `.mcp.json` 的唯一条目 -- 它在一个 stdio 服务器和一个 Click CLI 背后托管 8 个工具组（`alerts`/`cron`/`composite`/`daas`/`dashboard`/`leader`/`pdf`/`research`）。薄合并层是 `fd-daas-mcp/daas/fd_daas_mcp/`（`server.py`/`registry.py`/`cli.py`/`selfcheck.py`）；每个组的工具代码位于 `fd-daas-mcp/<group>-mcp/`。服务器和 CLI 都消费 `registry.build()`，所以表面不会漂移。
+数据获取是**技能驱动**：技能直接调用 Python 数据库（`akshare`、`yfinance`、`edgar`、`edinet-tools`、`dartlab`、`world_bank_data`、`ckanapi`）并通过 `sqlite3` 读写 `daas.db`。统一的 **`fd-daas-mcp`** MCP 服务器是 `.mcp.json` 的唯一条目 -- 它在一个 stdio 服务器和一个 Click CLI 背后托管 9 个工具组（`alerts`/`cron`/`composite`/`daas`/`dashboard`/`gateway`/`workflow`/`pdf`/`research`）。薄合并层是 `fd-daas-mcp/daas/fd_daas_mcp/`（`server.py`/`registry.py`/`cli.py`/`selfcheck.py`）；每个组的工具代码位于 `fd-daas-mcp/<group>-mcp/`。服务器和 CLI 都消费 `registry.build()`，所以表面不会漂移。
 
 ## 仓库布局
 
@@ -43,4 +43,4 @@ DAAS/
 ## 已移除表面 -- 不要引用
 
 已移除 CLI：`fd-akshare`/`fd-yfinance`/`fd-dartlab`/`fd-edgar`/`fd-edinet`/`fd-world`。
-已移除技能/组：`fd-daas-workflow-creator`、`fd-daas-scraw-scrapling`、`fd-daas-scrapling-scraw-creator`、`fd-daas-cli-datasource-entities-builder`、每源 `mcp__*` 工具、以及 `scrapling`/`firecrawl`/`massive` MCP 组。`cron`/`alerts`/`leader`/`composite` MCP **未**移除 -- 它们以 `<group>_<tool>` 形式折进 `fd-daas-mcp`。`pdf` 已恢复（可选）。
+已移除技能/组：`fd-daas-workflow-creator`、`fd-daas-scraw-scrapling`、`fd-daas-scrapling-scraw-creator`、`fd-daas-cli-datasource-entities-builder`、每源 `mcp__*` 工具、以及 `scrapling`/`firecrawl`/`massive` MCP 组。`cron`/`alerts`/`gateway`/`workflow`/`composite` MCP **未**移除 -- 它们以 `<group>_<tool>` 形式折进 `fd-daas-mcp`。`pdf` 已恢复（可选）。

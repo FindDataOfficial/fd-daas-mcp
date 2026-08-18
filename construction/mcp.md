@@ -1,100 +1,145 @@
 # MCP Construction
 
-> **STALE (replace-fetch-stack-with-skills):** the MCP servers described below
-> (`fd-daas-mcp` and all `mcp/*-mcp/` upstreams) are **removed**. Data fetch is
-> now skill-driven: skills call Python data libraries directly and read/write
-> `daas.db` via `sqlite3`. `.mcp.json` is empty. See `CLAUDE.md` for the current
-> architecture and `.claude/skills/skill-based-data-fetch/`. The schema tables
-> described below (`sources`, `daas_function_columns`, `observations`, etc.)
-> still exist in `daas.db` and are valid - only the MCP *access* layer is gone.
+> Layered architecture (rearchitect-daas-layered-mcps). The consolidated
+> `fd-daas-mcp` server is the sole `.mcp.json` entry; data fetch is delegated
+> down to the `fd-open-data-mcp` upstream. See `CLAUDE.md` for the skill-driven
+> fetch workflow + `daas.db` schema.
 
-## Env & Schema (unified 2025-06-26)
+## Layered architecture
 
-**Single source of truth:** `mcp/models/models.py` — one SQLAlchemy `Base`, 13 tables across all MCP domains.
+Strict downward dependency. A layer never reaches up.
 
-**Single database:** `daas.db` — all MCPs and the dashboard read/write here.
-
-**Single env file:** `.env` (project root) — `DAAS_DATABASE_URL`, proxy, CKAN portal, dashboard port.
-
-### Env Loading
-
-Every MCP `server.py` loads:
-
-```python
-from pathlib import Path
-from dotenv import load_dotenv
-
-ROOT = Path(__file__).resolve().parent.parent  # mcp/
-load_dotenv(ROOT / ".env")                       # root first
-load_dotenv(Path(__file__).parent / ".env", override=True)  # local overrides
+```
+L3  user MCP compositions  (composite manifests, served in-proc on fd-daas-mcp)
+L2  workflow manifests      (daas.db `workflows` table + engine, run via workflow_run)
+L1  fd-daas-mcp             (consolidated infra: daas/cron/alerts/dashboard/composite/research/pdf/gateway/workflow)
+L0  fd-open-data-mcp        (sole data-fetch upstream; concept-based semantic fetcher + entity master)
 ```
 
-Root `.env` sets defaults. Per-MCP `.env` overrides only what needs to differ (database for testing, different proxy, etc.).
+### L0 — fd-open-data-mcp (data fetch)
 
-### Schema Package
+Sole data-fetch surface. A Python dependency sourced from the sibling
+`~/finddata/fd-open-data-mcp` repo, launched from the DAAS venv as
+`python -m fd_open_data_mcp.server`. Served HTTP at `:8300` (stdio fallback).
+Holds the entity master (`entities`, `entity_datasource_links`) + a
+concept-based semantic fetcher with ranking/failover/caching. Replaces the 11
+former per-source data-fetch MCPs. Callers use
+`call_data_mcp('fd-open-data-mcp', 'read', …)` directly, or
+`build_workflow_from_goal` for multi-step fetches.
 
-`mcp/models/` — installable `pyproject.toml` package. Each MCP depends on it:
+### L1 — fd-daas-mcp (infra)
+
+Consolidated stdio server; one entry in repo-root `.mcp.json`; one
+`fd-daas-mcp` Click CLI. The thin consolidation layer is
+`fd-daas-mcp/daas/fd_daas_mcp/` (`server.py`/`registry.py`/`cli.py`/`selfcheck.py`);
+each group's tool code lives in-package at `fd-daas-mcp/<group>-mcp/`. Server
+and CLI both consume `registry.build()` so the surfaces cannot drift.
+
+| Group | Dir | Concern |
+|-------|-----|---------|
+| gateway | `gateway-mcp/` | L0 upstream registry + call routing (former `leader` gateway half) |
+| workflow | `workflow-mcp/` | manifest store + run engine (former `leader` workflow half) |
+| daas | `daas-mcp/` | source/function/column catalog, entities, indicators, observations, rules, collections |
+| cron | `cron-mcp/` | APScheduler schedules + task registry |
+| alerts | `alerts-mcp/` | trigger rules over observation/scraw series + channel dispatch |
+| dashboard | `dashboard-mcp/` | standalone-HTML dashboard registry + `dashboards/index.html` regen |
+| composite | `composite-mcp/` | user MCP composition: curate tools from upstreams + embed workflows + prompt |
+| research | `research-mcp/` | persisted research bundle tying collections/indicators/dashboard/pipeline + report |
+| pdf | `pdf-mcp/` | optional local PDF/text vector search (sqlite-vec); gated on the extra |
+
+Launch: `fd-daas-mcp/bin/fd-daas-mcp-server`. Selfcheck:
+`fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.selfcheck` (probes every
+registered tool + source; target failed=0).
+
+> The legacy `leader` group is dissolved: its gateway-routing half became
+> `gateway_*`, its workflow-manifest half became `workflow_*`. Harness-registry
+> / snapshot / provenance capabilities are deleted. `ask_data_crew` + the
+> specialist-agent layer are removed.
+
+### L2 — workflow manifests
+
+Manifests live in the `workflows` table in `daas.db` (registered via
+`workflow_register`, run via `workflow_run`). A manifest is an ordered list of
+`fd-open-data-mcp` gateway calls (`{id, server, tool, args, on_failure}`); the
+engine executes them sequentially, honoring `on_fail`, and persists per-step
+results + run state. `build_workflow_from_goal` decomposes a natural-language
+goal into a manifest via an LLM (falls back to a deterministic single-step
+`list_concepts` manifest). Skills (`fd-daas-based-data-fetch`,
+`fd-daas-fetch-data`, `fd-daas-research`) are thin shells:
+parameter-gathering → `workflow_run(name, params)` → checkpoint handling.
+
+### L3 — user MCP composition
+
+A composite manifest (`{name, upstreams, tools, workflows, prompt}`) curates a
+named MCP surface served in-proc on the consolidated `fd-daas-mcp` server.
+`workflows` embeds NAMES of registered L2 workflow manifests (each served as
+one lazy tool); `prompt` becomes the composite's system prompt. CRUD via
+`composite_create_manifest`/`_update`/`_delete`/`_list_manifests`. The
+scaffold skill `fd-coding-mcp-creator` interviews the user → writes a manifest
+→ registers → selfchecks. See `openspec/changes/rearchitect-daas-layered-mcps/`.
+
+## Test suite
+
+Offline pytest suite at `fd-daas-mcp/tests/` — registry invariants,
+`<group>_<tool>` namespacing, cross-group collisions, leaf-module isolation,
+cron APScheduler suppression, per-core-group tool invocation, CLI
+generation/invocation, selfcheck, composite manifest CRUD + serving, and the
+optional `pdf` group. Run from the repo root:
 
 ```bash
-cd mcp/<name>-mcp && pip install -e ../models
+fd-daas-mcp/.venv/bin/python -m pytest fd-daas-mcp/tests
 ```
 
-```python
-from models import Base, Function, Schedule, Task, Datasource, ...
-```
+## Env & schema
 
-**Table domains:**
+**Single source of truth:** `fd-daas-mcp/models/models.py` — one SQLAlchemy
+`Base`, all tables across the MCP domains.
+
+**Single database:** `daas.db` — every group reads/writes here (path in
+`DAAS_DATABASE_URL`; relative `sqlite:///` paths resolve against repo root;
+`PRAGMA foreign_keys=ON` for FK cascade, `PRAGMA journal_mode=WAL` +
+`busy_timeout=10000` on every singleton engine to dodge "database is locked").
+
+**Single env file:** repo-root `.env` — `DAAS_DATABASE_URL`, `HTTP_PROXY`,
+`EDGAR_IDENTITY`, `EDINET_API_KEY`, `LLM_*`/`LEADER_MODEL*` (workflow planner),
+`ALERTS_FEISHU_WEBHOOK_URL`, `DASHBOARD_PORT`, `CKAN_PORTAL_URL`. Scripts load
+`.env` automatically; `fd-daas-mcp/.env` is empty (leader scripts must load
+the repo-root `.env` first to hit the live `daas.db`).
+
+Schema table domains (see `CLAUDE.md` for the full table list):
 
 | Domain | Tables |
 |--------|--------|
-| leader-mcp | `functions`, `function_columns`, `data_snapshots` |
-| cron-mcp | `schedules`, `executions`, `tasks`, `cron_data_jobs`, `cron_fetch_results` |
-| daas-mcp | `sources`, `daas_functions`, `daas_function_columns`, `observations` |
-| scrapling | `scraw_configs` |
-| dashboard | `datasources`, `datasource_columns` |
-| composite-mcp | `composites`, `upstreams`, `composite_tools`, `composite_chains` |
+| gateway | `gateway_upstreams` |
+| workflow | `workflows`, `workflow_runs`, `workflow_run_steps` |
+| daas | `sources`, `daas_functions`, `daas_function_columns`, `entities`, `entity_datasource_links`, `indicator_rules`, `observations`, `rules`, `process_results`, `entity_collections*`, `indicator_collections*`, `researches` |
+| cron | `schedules`, `executions`, `tasks` |
+| alerts | `alert_rules`, `alert_events` |
+| dashboard | `dashboards` |
+| composite | `composites`, `upstreams`, `composite_tools`, `composite_chains` |
+| pdf | `pdf_documents`, `pdf_meta`, `pdf_chunks` (+ `pdf_chunks_vec` `vec0`) |
 
-Schema changes go in `mcp/models/models.py` first, then propagate to consumers.
+Schema changes go in `fd-daas-mcp/models/models.py` first, then propagate to
+consumers.
 
-### MCP Servers
+## Unified Rules Engine
 
-> **Consolidated into `fd-daas-mcp`** (2026-07-11): `alerts-mcp`, `composite-mcp`, `cron-mcp`, `leader-mcp`, `daas-mcp`, and `dashboard-mcp` are consolidated into the single `fd-daas-mcp` server (the sole `.mcp.json` entry). Their tools are the canonical client-facing surface, invoked as `mcp__fd-daas-mcp__<group>_<tool>` / `fd-daas-mcp <group> <tool>`. The table below remains a schema/provenance record; each `mcp/*-mcp/` dir + selfcheck stays on disk as an importable module host.
+> Replaces the former `process_rules` table. See
+> `openspec/changes/unify-rule-tools/`.
 
-| Server | Directory | DB via | Notes |
-|--------|-----------|--------|-------|
-| leader-mcp | `mcp/leader-mcp/` | `from models import ...` | multi-harness registry |
-| cron-mcp | `mcp/cron-mcp/` | `from models import ...` | scheduler, `models.py` deleted; cross-MCP data fetch via `fastmcp.Client` over `.mcp.json` (`mcp_client.py` + `fetch_runner.py`); `schedules.data_job_id` guarded ALTER + `PRAGMA foreign_keys=ON` for `ON DELETE SET NULL` |
-| daas-mcp | `mcp/daas-mcp/` | `from models import DaasSource, ...` | source-based registry, `models.py` deleted; also hosts the process tools (LLM extraction + math indicators) relocated from the former process-mcp; `seed_massive_endpoints.py` registers Massive.com's 37 REST endpoints as `daas_functions`+columns + Economy `indicator_rules` (12 endpoints entitlement-gated); `backfill_massive.py` populates `scraw_massive_*` IN-PROCESS via the `mcp_massive` package (no subprocess - the massive group is folded into fd-daas-mcp); `fetch_data` dispatches `<source>_<func>` calls -> in-process via `fd-world` for `akshare_`/`worldbank_`/`ckan_`/`cnstats_`/`wbdata_`, and by shelling out to `uv run --directory fd-<source> fd-<source> call … --json` for the `dartlab_`/`edgar_`/`edinet_`/`yfinance_` CLI harnesses; `seed_external_mcps.py` marks each datasource's section `instruction` as CLI-routed/in-process (`cli=<source> function=<source>_<func>` -> `fetch_data`); the `mcp=` routing kind is removed (all data-fetch upstreams folded in-process); dartlab added under `Filings -> KR-DART` |
-| dashboard-mcp | `mcp/dashboard-mcp/` | `from models import Datasource, ...` | no inline CREATE TABLE |
-| ckan-mcp | `mcp/ckan-mcp/` | inline models (ponytail) | dotenv loading added |
-| cnstats-mcp | `mcp/cnstats-mcp/` | `cli_anything.world.core.models` | dotenv loading added |
-| worldbank-mcp | `mcp/worldbank-mcp/` | `cli_anything.world.core.models` | dotenv loading added |
-| akshare-mcp | `mcp/akshare-mcp/` | `cli_anything.akshare.core.models` | untouched |
-| scrapling-*-mcp | `mcp/scrapling-*-mcp/` | own `init_db.py` | untouched |
-| composite-mcp | `mcp/composite-mcp/` | `from models import Composite, ...` | composite MCP — curate selected tools from upstreams + chained tools; one composite per process via `COMPOSITE` env |
+**`rules` table** (`name` UNIQUE, `rule_type` ∈ {json, script, position, llm},
+`target` ∈ {entity_ids, indicator_names, rows}, `config_json`, `enabled`).
+Entity + indicator collections reference a rule via a nullable `rule_id` FK
+(ON DELETE SET NULL); `process_results.rule_id` FK->`rules.id` (ON DELETE
+CASCADE).
 
-### CLI Harnesses (data-fetch, shelled out by daas-mcp `fetch_data`)
+**`RuleEngine`** (`fd-daas-mcp/daas-mcp/rule_engine.py`) `evaluate(rule,
+session, db_url, limit)` dispatches on `rule_type`: `json` declarative entities
+filter; `script` path-based importlib `members(ctx)` (ctx: read-only `query`,
+`http_get`, `llm`); `position` CSS/xpath/regex/json-path extraction; `llm`
+natural-language extraction via shared `process_tools.extract_text`.
 
-> **BREAKING (data-fetch-mcps-to-cli)**: the `dartlab-mcp`/`edgartools-mcp`/`edinet-mcp`/`yfinance-mcp` servers are **removed**; their data surface moved to CLI harnesses fetched via `daas-mcp fetch_data("<source>_<func>", '{…}')`. `ask_data_crew`/`call_data_mcp`/specialist-agent/`composite-mcp` callers targeting those four upstream names no longer work - use `fetch_data` instead. Remaining data-fetch upstreams: `akshare`/`cnreport`/`ckan`/`cnstats`/`worldbank` (+ `massive`).
-
-| Harness | Dir | Package / Script | Wraps | Functions | Auth | Notes |
-|---------|-----|------------------|-------|-----------|------|-------|
-| yfinance (canonical) | `fd-yfinance/` | `cli_anything.yfinance` / `fd-yfinance` | `yfinance` | `yfinance_*` (curated) | none | reused as-is; daas datasource `yfinance` (id 22) + entities; replaces `yfinance-mcp` |
-| dartlab | `fd-dartlab/` | `cli_anything.dartlab` / `fd-dartlab` | `dartlab` (KR DART + US EDGAR) | `dartlab_company_panel`, `dartlab_panel_search`, `dartlab_list_filings`, `dartlab_get_credit`, `dartlab_analyze`, `dartlab_scan` (6) | KEYLESS; optional `DART_API_KEY` | `requires-python>=3.12`; daas datasource `dartlab` + KR/US entities (`ticker`); replaces `dartlab-mcp` |
-| edgar | `fd-edgar/` | `cli_anything.edgar` / `fd-edgar` | `edgar` (EdgarTools, SEC) | `edgar_get_company`, `edgar_list_filings`, `edgar_get_filing`, `edgar_get_financials`, `edgar_get_insider_trades` (5) | `EDGAR_IDENTITY` required | daas datasource `edgar` (id 20) + US entities (`ticker`, CIK alias); replaces `edgartools-mcp` |
-| edinet | `fd-edinet/` | `cli_anything.edinet` / `fd-edinet` | `edinet_tools` (Japan EDINET) | `edinet_search_entities`, `edinet_get_entity`, `edinet_list_documents`, `edinet_get_document`, `edinet_supported_doc_types` (5) | `EDINET_API_KEY` (only `list_documents`/`get_document`) | daas datasource `edinet` (id 21) + JP entities (EDINET code); replaces `edinet-mcp` |
-
-Each harness is a standalone uv project (own venv), loaded into `daas.db` via `.trae/skills/fd-daas-data-fetch/references/<source>.registry.json` + `load_registry_json.py`. `daas-mcp fetch_data("<source>_<func>", '{…}')` shells out to `uv run --directory fd-<source> fd-<source> call <func> k=v --json`.
-
-### Deleted Files
-
-- `mcp/leader_mcp.db` — zombie
-- `mcp/daas_registry.db` — zombie
-- `mcp/cron.db` — zombie
-- `mcp/dashboard.db` — migrated to `daas.db`
-- `mcp/cron-mcp/models.py` — moved to `mcp/models/`
-- `mcp/daas-mcp/models.py` — moved to `mcp/models/`
-
-### composite-mcp model (one composite per process)
-
-`composite-mcp` curates a composite MCP: selected tools from multiple upstream MCP servers (proxied verbatim via `create_proxy` + a lazy `FilterTools` transform + `mount(namespace=<upstream>)`) plus chained tools (linear pipelines with `$prev`/`$step[N]` reference resolution). **One composite served per process**, selected by the `COMPOSITE` env var — to serve a second composite, add another `.mcp.json` entry pointing at the same `server.py` with a different `COMPOSITE`. Selection is persisted in `daas.db` (`composites`/`upstreams`/`composite_tools`/`composite_chains`); management tools are always present and changes apply on restart. See `openspec/changes/archive/2026-06-28-add-combine-mcp/` for the full design.
+Tools (`daas_*`): `daas_create_rule`/`list_rules`/`get_rule`/`update_rule`/
+`delete_rule`/`test_rule` (dry-run)/`run_rule` (persist). Collection sync:
+`daas_sync_entity_collection` / `daas_sync_indicator_collection` evaluate the
+attached rule and diff. Skill: `fd-daas-rules-creator`.

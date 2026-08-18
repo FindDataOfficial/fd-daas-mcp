@@ -1,6 +1,6 @@
 """Database + upstream-client helpers for composite-mcp.
 
-Mirrors leader_database.py: SQLAlchemy engine + session factory over the
+Mirrors gateway_database.py: SQLAlchemy engine + session factory over the
 shared mcp/daas.db, CRUD for the four composite tables, a loader that
 returns a composite's full definition, and a helper to build a FastMCP
 Client for an upstream.
@@ -15,11 +15,11 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional  # ponytail: real objects, dodge PEP-563 lazy eval under composite_tools.list shadow
 
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport, StreamableHttpTransport
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from models import Base, Composite, CompositeChain, CompositeTool, Upstream
@@ -87,9 +87,37 @@ class CompositeDatabase:
                 else {}
             ),
         )
+
+        @event.listens_for(self._engine, "connect")
+        def _set_sqlite_pragma(dbapi_conn, connection_record):
+            # ponytail: WAL + busy_timeout — same hardening as daas/process DBs.
+            # Composite writes share daas.db; without WAL a writer here contends
+            # with another singleton's open transaction → "database is locked".
+            if self._database_url.startswith("sqlite"):
+                cur = dbapi_conn.cursor()
+                cur.execute("PRAGMA journal_mode=WAL")
+                cur.execute("PRAGMA busy_timeout=10000")
+                cur.close()
+
         self._session_factory = sessionmaker(bind=self._engine)
         Base.metadata.create_all(self._engine)
+        self._migrate_composite_columns()
         logger.info("Composite DB initialized: %s", self._database_url)
+
+    def _migrate_composite_columns(self) -> None:
+        # ponytail: create_all only adds missing TABLES, not COLUMNS on existing
+        # tables. The live daas.db `composites` predates the workflows/prompt
+        # columns; reflective ALTER self-heals the singleton without a separate
+        # migration script.
+        if not self._database_url.startswith("sqlite"):
+            return
+        with self._engine.connect() as conn:
+            cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(composites)")}
+            if "workflows" not in cols:
+                conn.exec_driver_sql("ALTER TABLE composites ADD COLUMN workflows TEXT")
+            if "prompt" not in cols:
+                conn.exec_driver_sql("ALTER TABLE composites ADD COLUMN prompt TEXT")
+            conn.commit()
 
     def dispose(self) -> None:
         if self._engine is not None:
@@ -99,7 +127,7 @@ class CompositeDatabase:
 
     # ── composites ──────────────────────────────────────────────
 
-    def list_composites(self) -> list[dict]:
+    def list_composites(self) -> List[Dict]:
         session = self.get_session()
         try:
             return [c.to_dict() for c in session.query(Composite).order_by(Composite.name).all()]
@@ -129,7 +157,7 @@ class CompositeDatabase:
 
     # ── upstreams ───────────────────────────────────────────────
 
-    def list_upstreams(self, composite_id: int) -> list[dict]:
+    def list_upstreams(self, composite_id: int) -> List[Dict]:
         session = self.get_session()
         try:
             return [
@@ -202,7 +230,7 @@ class CompositeDatabase:
 
     # ── composite tools (proxy selection) ───────────────────────
 
-    def list_composite_tools(self, composite_id: int) -> list[dict]:
+    def list_composite_tools(self, composite_id: int) -> List[Dict]:
         session = self.get_session()
         try:
             return [
@@ -272,7 +300,7 @@ class CompositeDatabase:
 
     # ── chains ──────────────────────────────────────────────────
 
-    def list_chains(self, composite_id: int) -> list[dict]:
+    def list_chains(self, composite_id: int) -> List[Dict]:
         session = self.get_session()
         try:
             return [
@@ -350,6 +378,168 @@ class CompositeDatabase:
             "tools": self.list_composite_tools(comp.id),
             "chains": self.list_chains(comp.id),
         }
+
+    # ── manifests (manifest-mode CRUD over the relational schema) ────
+
+    def create_manifest(
+        self,
+        name: str,
+        upstreams: list,
+        tools: list,
+        workflows: Optional[list] = None,
+        prompt: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> dict:
+        """Create a composite + its upstreams/tools/workflows/prompt in one call.
+
+        ``upstreams``: [{key, transport, command?, args?, env?, cwd?, url?}].
+        ``tools``: [{upstream, tool, alias?}] (upstream = upstream key).
+        ``workflows``: names of registered workflow manifests to surface.
+        ``prompt``: system prompt text for the composite surface.
+        Raises if a composite named ``name`` already exists.
+        """
+        session = self.get_session()
+        try:
+            existing = session.query(Composite).filter(Composite.name == name).first()
+            if existing:
+                raise ValueError(f"composite {name!r} already exists")
+            row = Composite(
+                name=name,
+                description=description,
+                workflows=workflows,
+                prompt=prompt,
+            )
+            session.add(row)
+            session.flush()  # assign row.id
+            _add_upstream_rows(session, row.id, upstreams)
+            _add_tool_rows(session, row.id, tools)
+            session.commit()
+            session.refresh(row)
+            return self._manifest_dict(session, row)
+        finally:
+            session.close()
+
+    def update_manifest(
+        self,
+        name: str,
+        upstreams: Optional[list] = None,
+        tools: Optional[list] = None,
+        workflows: Optional[list] = None,
+        prompt: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> dict:
+        """Partially update a composite manifest.
+
+        Only provided fields change. ``upstreams``/``tools`` (when given) REPLACE
+        the existing sets wholesale (manifest mode = whole-document update).
+        ``workflows``/``prompt``/``description`` patch the composite row.
+        """
+        session = self.get_session()
+        try:
+            row = session.query(Composite).filter(Composite.name == name).first()
+            if row is None:
+                raise ValueError(f"composite {name!r} not found")
+            if upstreams is not None:
+                session.query(Upstream).filter(Upstream.composite_id == row.id).delete()
+                _add_upstream_rows(session, row.id, upstreams)
+            if tools is not None:
+                session.query(CompositeTool).filter(
+                    CompositeTool.composite_id == row.id
+                ).delete()
+                _add_tool_rows(session, row.id, tools)
+            if workflows is not None:
+                row.workflows = workflows
+            if prompt is not None:
+                row.prompt = prompt
+            if description is not None:
+                row.description = description
+            session.commit()
+            session.refresh(row)
+            return self._manifest_dict(session, row)
+        finally:
+            session.close()
+
+    def delete_manifest(self, name: str) -> dict:
+        """Delete a composite manifest (cascades upstreams/tools/chains)."""
+        session = self.get_session()
+        try:
+            row = session.query(Composite).filter(Composite.name == name).first()
+            if row is None:
+                raise ValueError(f"composite {name!r} not found")
+            session.delete(row)
+            session.commit()
+            return {"deleted": name}
+        finally:
+            session.close()
+
+    def list_manifests(self) -> List[Dict]:
+        """List all composites as manifests (name, upstreams, tools, workflows, prompt)."""
+        session = self.get_session()
+        try:
+            rows = session.query(Composite).order_by(Composite.name).all()
+            return [self._manifest_dict(session, r) for r in rows]
+        finally:
+            session.close()
+
+    def _manifest_dict(self, session, row: Composite) -> dict:
+        upstreams = [
+            u.to_dict()
+            for u in session.query(Upstream)
+            .filter(Upstream.composite_id == row.id)
+            .order_by(Upstream.key)
+            .all()
+        ]
+        tools = [
+            {"upstream": t.upstream_key, "tool": t.tool_name, "alias": t.alias}
+            for t in session.query(CompositeTool)
+            .filter(CompositeTool.composite_id == row.id)
+            .order_by(CompositeTool.upstream_key, CompositeTool.tool_name)
+            .all()
+        ]
+        return {
+            "name": row.name,
+            "description": row.description,
+            "upstreams": upstreams,
+            "tools": tools,
+            "workflows": row.workflows or [],
+            "prompt": row.prompt,
+        }
+
+
+def _add_upstream_rows(session, composite_id: int, upstreams: list) -> None:
+    for u in upstreams or []:
+        if "key" not in u or "transport" not in u:
+            raise ValueError("each upstream needs 'key' and 'transport'")
+        if u["transport"] == "stdio" and not u.get("command"):
+            raise ValueError(f"stdio upstream {u.get('key')!r} requires 'command'")
+        if u["transport"] == "http" and not u.get("url"):
+            raise ValueError(f"http upstream {u.get('key')!r} requires 'url'")
+        session.add(
+            Upstream(
+                composite_id=composite_id,
+                key=u["key"],
+                transport=u["transport"],
+                command=u.get("command"),
+                args=u.get("args"),
+                env=u.get("env"),
+                cwd=u.get("cwd"),
+                url=u.get("url"),
+            )
+        )
+
+
+def _add_tool_rows(session, composite_id: int, tools: list) -> None:
+    for t in tools or []:
+        if "upstream" not in t or "tool" not in t:
+            raise ValueError("each tool needs 'upstream' (key) and 'tool' (name)")
+        session.add(
+            CompositeTool(
+                composite_id=composite_id,
+                upstream_key=t["upstream"],
+                tool_name=t["tool"],
+                alias=t.get("alias"),
+            )
+        )
 
 
 # ═══════════════════════════════════════════════════════════════

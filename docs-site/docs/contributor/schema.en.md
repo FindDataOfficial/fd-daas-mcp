@@ -61,8 +61,7 @@ for FK cascade.
 | `alert_rules` / `alert_events` | Alert rules + fired events. |
 | `schedules` / `tasks` / `executions` | Cron tasks + schedules + history. |
 | `composites` / `composite_chains` / `composite_tools` / `composite_upstreams` | Composite MCP server definitions. |
-| `leader_upstreams` / `specialist_agents` / `workflows` / `workflow_steps` / `workflow_runs` / `workflow_step_results` | Leader (CrewAI) layer. |
-| `data_snapshots` | Saved function-call snapshots. |
+| `gateway_upstreams` / `workflows` / `workflow_steps` / `workflow_runs` / `workflow_step_results` | Gateway + workflow layer. |
 | `settings` | Key/value settings. |
 
 ## Useful queries

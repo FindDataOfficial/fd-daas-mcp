@@ -26,8 +26,6 @@ def main() -> int:
         DaasSource,
         DaasFunction,
         DaasFunctionColumn,
-        Entity,
-        EntityDatasourceLink,
     )
 
     db = Database.get_instance()
@@ -164,105 +162,6 @@ def main() -> int:
     sess = db.get_session()
     assert sess.get(DaasSource, src2["id"]).category_id is None, "leaf delete nulls category_id"
     assert sess.get(Category, leaf["id"]) is None, "leaf category removed"
-
-    # ---- Entity domain ----
-    # Two sources: one daas-registered (columns resolved locally), one
-    # external-MCP-style (no daas_functions → column_hint from instruction).
-    yf = s.create_datasource("yfinance", "Yahoo Finance")
-    fyf = s.add_form("yfinance", "default", "Yahoo Finance tool catalog")
-    s.add_section(
-        fyf["id"],
-        "Price-History",
-        "mcp=yfinance-mcp tool=call_yfinance_function param=name=ticker_history param=params_json=<ask-agent>",
-    )
-    cn = s.create_datasource("cnstats", "China Statistics")
-    sess2 = db.get_session()
-    fn = DaasFunction(source_id=cn["id"], name="cnstats_gdp", category="Macro",
-                      output_type="DataFrame")
-    sess2.add(fn)
-    sess2.commit()
-    sess2.add(DaasFunctionColumn(function_id=fn.id, name="gdp", type="float",
-                                 description="GDP in CNY"))
-    sess2.commit()
-
-    # Upsert entity (stock) directly via session — sync script does this too
-    apple = Entity(entity_type="stock", code="AAPL", name="Apple Inc.",
-                   ticker="AAPL", exchange="NASDAQ", country_code="US")
-    sess2.add(apple)
-    sess2.commit()
-    # Idempotent upsert on (entity_type, code): a second insert is rejected
-    from sqlalchemy.exc import IntegrityError as _IE
-    try:
-        sess2.add(Entity(entity_type="stock", code="AAPL", name="Apple Inc."))
-        sess2.commit()
-        assert False, "dup (entity_type, code) should reject"
-    except _IE:
-        sess2.rollback()
-    assert sess2.query(Entity).filter_by(entity_type="stock", code="AAPL").count() == 1, "entity unique"
-
-    # search_entities — by name, ticker, code
-    assert any(r["code"] == "AAPL" for r in s.search_entities("Apple")), "search by name"
-    assert any(r["code"] == "AAPL" for r in s.search_entities("AAPL")), "search by ticker"
-    assert any(r["code"] == "AAPL" for r in s.search_entities("AAPL", entity_type="stock")), "search with type filter"
-    assert s.search_entities("zzznope") == [], "no matches returns []"
-
-    # get_entity
-    assert s.get_entity(apple.id)["code"] == "AAPL", "get_entity"
-    assert s.get_entity(999999) is None, "get_entity missing → None"
-
-    # list_entities pagination + filter
-    listed = s.list_entities(entity_type="stock", limit=10)
-    assert listed["count"] == 1 and listed["total"] == 1, "list_entities"
-
-    # link entity → yfinance (external-MCP) and → cnstats (daas-registered)
-    lk1 = s.link_entity_datasource(apple.id, "yfinance", identifier_in_source="AAPL")
-    assert lk1["identifier_in_source"] == "AAPL", "link created"
-    lk2 = s.link_entity_datasource(apple.id, "cnstats", identifier_in_source="CN")
-    # upsert: re-link yfinance with new identifier
-    s.link_entity_datasource(apple.id, "yfinance", identifier_in_source="AAPL", coverage="partial")
-    assert sess2.query(EntityDatasourceLink).filter_by(entity_id=apple.id).count() == 2, "two links"
-    # unknown source rejected
-    try:
-        s.link_entity_datasource(apple.id, "nope")
-        assert False, "unknown source should reject"
-    except ValueError:
-        pass
-
-    # get_entity_coverage — external-MCP source → column_hint; prefilled instruction
-    cov = s.get_entity_coverage(apple.id)
-    assert cov["count"] == 2, "coverage count"
-    yf_cov = next(d for d in cov["datasources"] if d["source"] == "yfinance")
-    assert yf_cov["identifier_in_source"] == "AAPL", "coverage identifier"
-    assert yf_cov["column_count"] == 0, "yfinance has no daas_functions"
-    assert "column_hint" in yf_cov and yf_cov["column_hint"]["tool"] == "call_yfinance_function", "column_hint"
-    pf = yf_cov["sections"][0]["prefilled_instruction"]
-    assert "param=name=ticker_history" in pf and "param=params_json=<ask-agent>" in pf, "only identifier param prefilled"
-    assert "param=name=ticker_history" in pf, "name param not identifier-keyed, left as-is"
-    cn_cov = next(d for d in cov["datasources"] if d["source"] == "cnstats")
-    assert cn_cov["column_count"] == 1 and cn_cov["columns"][0]["name"] == "gdp", "daas columns resolved"
-    assert "column_hint" not in cn_cov, "no hint when columns exist"
-
-    # entity with no links → empty coverage
-    lonely = Entity(entity_type="country", code="US", name="United States")
-    sess2.add(lonely)
-    sess2.commit()
-    assert s.get_entity_coverage(lonely.id)["count"] == 0, "empty coverage"
-
-    # unlink
-    s.unlink_entity_datasource(apple.id, "yfinance")
-    assert sess2.query(EntityDatasourceLink).filter_by(entity_id=apple.id).count() == 1, "unlink"
-    try:
-        s.unlink_entity_datasource(apple.id, "yfinance")
-        assert False, "unlink missing should reject"
-    except ValueError:
-        pass
-
-    # cascade: delete entity → links gone
-    sess2.expire_all()
-    apple = sess2.get(Entity, apple.id)
-    sess2.delete(apple)
-    sess2.commit()
-    assert sess2.query(EntityDatasourceLink).filter_by(entity_id=apple.id).count() == 0, "cascade on entity delete"
 
     # ---- Existing read API still works ----
     assert callable(s.list_sources), "list_sources still present"

@@ -3,21 +3,21 @@
 Every MCP server and the dashboard share this one Base. Schema changes
 MUST be made here first, then reflected in consuming code.
 
-34 tables across all MCP domains (adds Entity + EntityDatasourceLink for the
-entity→datasource coverage layer; +LeaderUpstream for the leader-mcp data
+Shared Base for all tables across all MCP domains. Entity +
+EntityDatasourceLink were dropped (design D5 / task 3.7) — the entity master
+lives in fd-open-data-mcp. Adds +GatewayUpstream for the gateway-mcp data
 gateway; +PipelineCollection + PipelineCollectionItem for daas-mcp managed
-fetch+cron collections).
+fetch+cron collections.
 
 Domains:
-  leader-mcp:  Function, FunctionColumn, DataSnapshot (harness-based registry)
   cron-mcp:    Schedule, Execution, Task (scheduler data)
   daas-mcp:    DaasSource, DaasFunction, DaasFunctionColumn, Observation (source-based registry)
   daas-mcp mgmt: Category, DatasourceForm, DatasourceSection, DatasourceCollection,
                  DatasourceCollectionItem, PipelineCollection, PipelineCollectionItem
   scrapling:   ScrawConfig (scraping configs)
   dashboard:   Datasource, DatasourceColumn (dashboard metadata)
-  process:    ProcessRule, ProcessResult, IndicatorRule (LLM extraction + indicators; owned by daas-mcp, relocated from process-mcp)
-  entity:      Entity, EntityDatasourceLink (stocks + countries, linked to daas sources)
+  process:    Rule (unified json/script/position/llm), ProcessResult, IndicatorRule (LLM extraction + indicators; owned by daas-mcp, relocated from process-mcp)
+  entity:      EntityCollection, EntityCollectionItem, EntityCollectionChange (natural-key entity groups; master is fd-open-data-mcp)
 """
 
 from datetime import datetime, timezone
@@ -39,115 +39,31 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 # ═══════════════════════════════════════════════════════════════
-# leader-mcp domain — harness-based registry
+# gateway-mcp domain — upstream registry (gateway_upstreams)
 # ═══════════════════════════════════════════════════════════════
+# ponytail: P4 — harness-registry models (Function/FunctionColumn/
+# DataSnapshot) + SpecialistAgent (CrewAI) removed when leader-mcp
+# dissolved into gateway-mcp + workflow-mcp. Live daas catalog =
+# DaasFunction/DaasFunctionColumn; data-fetch routing = fd-open-data-mcp.
 
 
-class Function(Base):
-    __tablename__ = "functions"
-    __table_args__ = (UniqueConstraint("harness", "command", name="uq_harness_command"),)
+class GatewayUpstream(Base):
+    """A data-fetch MCP upstream that the gateway routes to via a fastmcp.Client.
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    harness = Column(String(64), nullable=False, index=True)
-    command = Column(String(255), nullable=False, index=True)
-    category = Column(String(255), nullable=False, default="未分类")
-    source = Column(String(512), nullable=True)
-    description = Column(String, nullable=True)
-    parameters = Column(JSON, nullable=True)
-    is_datasource = Column(Boolean, default=False)
-    enabled = Column(Boolean, default=True)
-    last_fetched_at = Column(DateTime, nullable=True)
-
-    columns = relationship(
-        "FunctionColumn", back_populates="function", cascade="all, delete-orphan", lazy="selectin"
-    )
-
-    def to_dict(self) -> dict:
-        return {
-            "harness": self.harness,
-            "command": self.command,
-            "category": self.category,
-            "source": self.source,
-            "description": self.description,
-            "parameters": self.parameters or [],
-            "is_datasource": self.is_datasource,
-            "enabled": self.enabled,
-            "last_fetched_at": self.last_fetched_at.isoformat() if self.last_fetched_at else None,
-            "columns": [c.to_dict() for c in self.columns] if self.columns else [],
-        }
-
-
-class FunctionColumn(Base):
-    __tablename__ = "function_columns"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    function_id = Column(
-        Integer, ForeignKey("functions.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    column_name = Column(String(255), nullable=False)
-    column_type = Column(String(64), nullable=True)
-    column_description = Column(String, nullable=True)
-    source_field = Column(String(255), nullable=True)
-    unit = Column(String(32), nullable=True)
-    semantic_type = Column(String(64), nullable=True)
-
-    function = relationship("Function", back_populates="columns")
-
-    def to_dict(self) -> dict:
-        return {
-            "name": self.column_name,
-            "type": self.column_type,
-            "description": self.column_description,
-            "source_field": self.source_field,
-            "unit": self.unit,
-            "semantic_type": self.semantic_type,
-        }
-
-
-class DataSnapshot(Base):
-    __tablename__ = "data_snapshots"
-    __table_args__ = (UniqueConstraint("function_id", "params_json", name="uq_snapshot_function_params"),)
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    function_id = Column(
-        Integer, ForeignKey("functions.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    params_json = Column(JSON, nullable=False)
-    fetched_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    status = Column(String(16), default="success")
-    data_json = Column(JSON, nullable=True)
-    row_count = Column(Integer, default=0)
-
-    function = relationship("Function")
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "function_id": self.function_id,
-            "params_json": self.params_json,
-            "fetched_at": self.fetched_at.isoformat() if self.fetched_at else None,
-            "status": self.status,
-            "row_count": self.row_count,
-        }
-
-
-class LeaderUpstream(Base):
-    """A data-fetch MCP upstream that leader-mcp launches on demand as a stdio
-    subprocess and calls via a fastmcp.Client. Replaces the direct `.mcp.json`
-    connection for the project's data-fetch MCPs (yfinance, edgartools, …).
-
-    transport is 'stdio' (command + args_json + cwd + env_json). The
-    fastmcp.Client is built per call from these fields (see gateway_database.
-    build_client), mirroring composite-mcp's Upstream pattern — but scoped
-    globally (one row per data-fetch MCP), not per-composite.
+    Named `gateway_upstreams` — the gateway is the single entry point for all
+    data-fetch calls (routed to fd-open-data-mcp or other upstreams). transport
+    is 'stdio' (command + args_json + cwd + env_json) or 'http' (url). The
+    fastmcp.Client is built from these fields (see gateway_database.build_client),
+    mirroring composite-mcp's Upstream pattern.
     """
-    __tablename__ = "leader_upstreams"
-    __table_args__ = (UniqueConstraint("name", name="uq_leader_upstream_name"),)
+    __tablename__ = "gateway_upstreams"
+    __table_args__ = (UniqueConstraint("name", name="uq_gateway_upstream_name"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(64), unique=True, nullable=False, index=True)
-    transport = Column(String(16), nullable=False, default="stdio")
+    transport = Column(String(16), nullable=False, default="http")
     command = Column(String, nullable=True)        # stdio executable
+    url = Column(String, nullable=True)             # http transport URL
     args_json = Column(JSON, nullable=True)        # stdio argv list
     env_json = Column(JSON, nullable=True)         # stdio env dict (optional override)
     cwd = Column(String, nullable=True)            # stdio working directory
@@ -166,6 +82,7 @@ class LeaderUpstream(Base):
             "name": self.name,
             "transport": self.transport,
             "command": self.command,
+            "url": self.url,
             "args": self.args_json or [],
             "env": self.env_json or {},
             "cwd": self.cwd,
@@ -795,6 +712,11 @@ class Composite(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(128), nullable=False, index=True)
     description = Column(String, nullable=True)
+    # ponytail: manifest-mode fields layered over the relational upstreams/tools.
+    # workflows = names of registered workflow manifests (the `workflows` table)
+    # to surface inside this composite; prompt = system prompt for the surface.
+    workflows = Column(JSON, nullable=True)   # ["data-fetch", "indicators"]
+    prompt = Column(Text, nullable=True)      # system prompt for the composite surface
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self) -> dict:
@@ -802,6 +724,8 @@ class Composite(Base):
             "id": self.id,
             "name": self.name,
             "description": self.description,
+            "workflows": self.workflows or [],
+            "prompt": self.prompt,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -992,27 +916,32 @@ class EsIndexMeta(Base):
 # ═══════════════════════════════════════════════════════════════
 
 
-class ProcessRule(Base):
-    """A persisted extraction rule: bind a source-data table + text column to
-    a JSON Schema + model, replayable incrementally via run_rule.
+class Rule(Base):
+    """A reusable, type-tagged membership/derivation rule - the unified rule
+    store backing entity + indicator collection sync.
 
-    source_table is a dynamically-created scraped-data table (convention:
-    `scraw_<slug>`), NOT a registry table. last_rowid is the incremental cursor.
+    `rule_type` selects the evaluator: `json` (declarative entity filter),
+    `script` (a Python `members(ctx)` file), `position` (CSS/xpath/regex/
+    json-path extraction), `llm` (natural-language extraction). `target` is
+    what the rule yields: `entity_ids`, `indicator_names`, or `rows`.
+    `config_json` carries the type-specific config (see the daas-rules-engine
+    spec). Collections reference a rule via `rule_id` (nullable; NULL = manual).
+
+    The `RuleEngine` (daas-mcp/rule_engine.py) dispatches on `rule_type`.
+    Script loading is path-based (importlib) so it never relies on a bare
+    import of a group-local module at runtime - the fix for the
+    `No module named 'entity_rule_script'` regression.
     """
-    __tablename__ = "process_rules"
-    __table_args__ = (UniqueConstraint("name", name="uq_process_rule_name"),)
+    __tablename__ = "rules"
+    __table_args__ = (UniqueConstraint("name", name="uq_rule_name"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(128), nullable=False, index=True)
-    source_table = Column(String(128), nullable=False)
-    text_column = Column(String(128), nullable=False)
-    schema_json = Column(JSON, nullable=False)
-    prompt = Column(Text, nullable=True)
-    model = Column(String(128), nullable=True)
-    max_chars = Column(Integer, nullable=False, default=12000)
+    rule_type = Column(String(16), nullable=False)  # json | script | position | llm
+    target = Column(String(32), nullable=False, default="entity_ids")  # entity_ids | indicator_names | rows
+    config_json = Column(JSON, nullable=False)
+    description = Column(String, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
-    last_rowid = Column(Integer, nullable=False, default=0)
-    datasource = Column(String(128), nullable=True)  # traceability only (daas sources.name)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime,
@@ -1024,15 +953,11 @@ class ProcessRule(Base):
         return {
             "id": self.id,
             "name": self.name,
-            "source_table": self.source_table,
-            "text_column": self.text_column,
-            "schema": self.schema_json or {},
-            "prompt": self.prompt,
-            "model": self.model,
-            "max_chars": self.max_chars,
-            "enabled": self.enabled,
-            "last_rowid": self.last_rowid,
-            "datasource": self.datasource,
+            "rule_type": self.rule_type,
+            "target": self.target,
+            "config": self.config_json or {},
+            "description": self.description,
+            "enabled": bool(self.enabled),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -1047,7 +972,7 @@ class ProcessResult(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     rule_id = Column(
-        Integer, ForeignKey("process_rules.id", ondelete="CASCADE"), nullable=False, index=True
+        Integer, ForeignKey("rules.id", ondelete="CASCADE"), nullable=False, index=True
     )
     source_table = Column(String(128), nullable=False, index=True)
     source_rowid = Column(Integer, nullable=False, index=True)
@@ -1072,7 +997,7 @@ class IndicatorRule(Base):
     + math op to an output indicator name, replayable via run_indicator.
 
     `datasource` is a soft reference to daas `sources.name` (no FK, matching
-    `ProcessRule.datasource`). `run_indicator` upserts results into the daas
+    the unified `rules` table's `llm`-type `config_json.datasource`). `run_indicator` upserts results into the daas
     `observations` table — the project's existing indicator store — keyed on
     (source=datasource, function_name, indicator=indicator_name, date).
     """
@@ -1134,6 +1059,9 @@ class IndicatorCollection(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(128), nullable=False, index=True)
     description = Column(String, nullable=True)
+    rule_id = Column(
+        Integer, ForeignKey("rules.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime,
@@ -1153,6 +1081,7 @@ class IndicatorCollection(Base):
             "id": self.id,
             "name": self.name,
             "description": self.description,
+            "rule_id": self.rule_id,
             "item_count": len(self.items) if self.items else 0,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
@@ -1335,101 +1264,9 @@ class AlertEvent(Base):
 # ═══════════════════════════════════════════════════════════════
 
 
-class Entity(Base):
-    """A reference entity — a stock (multi-market) or a country.
-
-    Linked to daas `sources` via `EntityDatasourceLink` so an agent can
-    answer "what data can I get for this entity" in one lookup. Natural key
-    is `(entity_type, code)`: for stocks `code` is the canonical market code
-    (6-digit A-share, 5-digit HK, US ticker); for countries it's ISO 3166-1
-    alpha-2. `ticker` is stored separately for sources that expect the
-    ticker form (yfinance/edgar).
-    """
-    __tablename__ = "entities"
-    __table_args__ = (UniqueConstraint("entity_type", "code", name="uq_entity_type_code"),)
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    entity_type = Column(String(32), nullable=False, index=True)  # 'stock' | 'country'
-    code = Column(String(64), nullable=False, index=True)
-    name = Column(String(255), nullable=False)
-    ticker = Column(String(64), nullable=True, index=True)
-    exchange = Column(String(32), nullable=True)  # SSE / SZSE / NASDAQ / NYSE / HKEX / ...
-    country_code = Column(String(8), nullable=True, index=True)  # ISO 3166-1 alpha-2
-    isin = Column(String(16), nullable=True)
-    aliases = Column(JSON, nullable=True)  # ["贵州茅台", "Kweichow Moutai", ...]
-    status = Column(String(16), nullable=False, default="active")  # active | delisted
-    metadata_ = Column("metadata", JSON, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-    )
-
-    links = relationship(
-        "EntityDatasourceLink",
-        back_populates="entity",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "entity_type": self.entity_type,
-            "code": self.code,
-            "name": self.name,
-            "ticker": self.ticker,
-            "exchange": self.exchange,
-            "country_code": self.country_code,
-            "isin": self.isin,
-            "aliases": self.aliases or [],
-            "status": self.status,
-            "metadata": self.metadata_ or {},
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
-
-
-class EntityDatasourceLink(Base):
-    """Many-to-many between entities and daas `sources`.
-
-    `identifier_in_source` is the value to plug into that datasource's
-    lookup tool (e.g. for AAPL → yfinance: 'AAPL'; → edgar: 'AAPL' since
-    get_company accepts a ticker; → cnreport for 600519: '600519'). The
-    coverage tool substitutes this into the section routing instruction so
-    the result is directly executable.
-    """
-    __tablename__ = "entity_datasource_links"
-    __table_args__ = (UniqueConstraint("entity_id", "source_id", name="uq_entity_source"),)
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    entity_id = Column(
-        Integer, ForeignKey("entities.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    source_id = Column(
-        Integer, ForeignKey("sources.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    identifier_in_source = Column(String(128), nullable=True)
-    coverage = Column(String(16), nullable=False, default="full")  # full | partial | none
-    metadata_ = Column("metadata", JSON, nullable=True)
-    last_fetched_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-    entity = relationship("Entity", back_populates="links")
-    source = relationship("DaasSource", lazy="selectin")
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "entity_id": self.entity_id,
-            "source_id": self.source_id,
-            "identifier_in_source": self.identifier_in_source,
-            "coverage": self.coverage,
-            "metadata": self.metadata_ or {},
-            "last_fetched_at": self.last_fetched_at.isoformat() if self.last_fetched_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-        }
+# Entity + EntityDatasourceLink are dropped (design D5 / task 3.7): the entity
+# master lives in fd-open-data-mcp now, resolved via the gateway. Collections
+# below reference entities only by natural key (entity_type, code).
 
 
 class EntityCollection(Base):
@@ -1458,6 +1295,9 @@ class EntityCollection(Base):
     description = Column(String, nullable=True)
     rule_json = Column(JSON, nullable=True)
     rule_script = Column(String, nullable=True)
+    rule_id = Column(
+        Integer, ForeignKey("rules.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime,
@@ -1477,6 +1317,7 @@ class EntityCollection(Base):
             "id": self.id,
             "name": self.name,
             "description": self.description,
+            "rule_id": self.rule_id,
             "rule": self.rule_json,
             "rule_script": self.rule_script,
             "item_count": len(self.items) if self.items else 0,
@@ -1488,31 +1329,32 @@ class EntityCollection(Base):
 class EntityCollectionItem(Base):
     """Current membership: one row per (collection, entity). Removing a member
     deletes this row and appends an `entity_collection_changes` remove_out
-    event. UNIQUE(collection_id, entity_id) makes re-adding a no-op."""
+    event. Re-keyed to the natural key `(entity_type, code)` (design D5 /
+    entity-master migration); UNIQUE(collection_id, entity_type, code) makes
+    re-adding a no-op."""
     __tablename__ = "entity_collection_items"
     __table_args__ = (
-        UniqueConstraint("collection_id", "entity_id", name="uq_entity_collection_item"),
+        UniqueConstraint("collection_id", "entity_type", "code", name="uq_entity_collection_item"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     collection_id = Column(
         Integer, ForeignKey("entity_collections.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    entity_id = Column(
-        Integer, ForeignKey("entities.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    entity_type = Column(String(32), nullable=False)
+    code = Column(String(64), nullable=False)
     sort_order = Column(Integer, nullable=False, default=0)
     added_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     added_reason = Column(String, nullable=True)
 
     collection = relationship("EntityCollection", back_populates="items")
-    entity = relationship("Entity", lazy="selectin")
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "collection_id": self.collection_id,
-            "entity_id": self.entity_id,
+            "entity_type": self.entity_type,
+            "code": self.code,
             "sort_order": self.sort_order,
             "added_at": self.added_at.isoformat() if self.added_at else None,
             "added_reason": self.added_reason,
@@ -1525,13 +1367,16 @@ class EntityCollectionChange(Base):
     `action` ∈ {add_in, remove_out}; `source` ∈ {manual, cron} (manual = a
     single add/remove call, cron = a rule-driven sync tick). Re-adding an
     entity after removal produces add_in → remove_out → add_in — the correct
-    audit semantic. Cascade on entity_id means deleting an entity also drops
-    its history rows; cascade on collection_id drops a deleted collection's
-    whole history."""
+    audit semantic. Re-keyed to `(entity_type, code)` (design D5 / entity-master
+    migration) so the audit history survives the drop of `entities`; the unique
+    key is `(collection_id, entity_type, code, changed_at)`. Re-keyed to
+    `(entity_type, code)` (design D5 / entity-master migration) so the audit
+    history survives the drop of `entities`."""
     __tablename__ = "entity_collection_changes"
     __table_args__ = (
         UniqueConstraint(
-            "collection_id", "entity_id", "changed_at", name="uq_entity_collection_change"
+            "collection_id", "entity_type", "code", "changed_at",
+            name="uq_entity_collection_change",
         ),
     )
 
@@ -1539,9 +1384,8 @@ class EntityCollectionChange(Base):
     collection_id = Column(
         Integer, ForeignKey("entity_collections.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    entity_id = Column(
-        Integer, ForeignKey("entities.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    entity_type = Column(String(32), nullable=False)
+    code = Column(String(64), nullable=False)
     action = Column(String(16), nullable=False)  # add_in | remove_out
     source = Column(String(16), nullable=False, default="manual")  # manual | cron
     reason = Column(String, nullable=True)
@@ -1551,7 +1395,8 @@ class EntityCollectionChange(Base):
         return {
             "id": self.id,
             "collection_id": self.collection_id,
-            "entity_id": self.entity_id,
+            "entity_type": self.entity_type,
+            "code": self.code,
             "action": self.action,
             "source": self.source,
             "reason": self.reason,
@@ -1560,34 +1405,45 @@ class EntityCollectionChange(Base):
 
 
 # ═══════════════════════════════════════════════════════════════
-# leader-mcp domain — CrewAI specialist data agents + data workflows
-# (crewai-data-workflow capability). Each specialist agent binds to one
-# leader_upstreams row; workflows compose ordered steps over those agents.
-# upstreams/agents are soft refs (no FK) so rename/disable flows aren't
-# blocked; workflow→step and run→result are real FKs with ON DELETE CASCADE.
+# (specialist-agent + legacy workflow-step models removed in P4 dissolution)
 # ═══════════════════════════════════════════════════════════════
 
 
-class SpecialistAgent(Base):
-    """A CrewAI specialist agent bound to exactly one data-fetch MCP upstream.
+# ═══════════════════════════════════════════════════════════════
+# research domain - persisted research bundle linking an entity collection,
+# indicator collection, rules, dashboard, and cron pipeline collection under
+# one name, plus a generated markdown report. References are by name (soft),
+# not FK, so attach/detach is free and cascade is handled in tool logic.
+# ═══════════════════════════════════════════════════════════════
 
-    `upstream` is a soft reference to `leader_upstreams.name` (the agent can
-    only fetch from this MCP). `model` names an entry in the `LEADER_MODELS`
-    registry (null → shared `LLM_*` fallback). The agent's `call_data_mcp`
-    tool is curried to `upstream` at run time so it cannot fetch elsewhere.
+
+class Research(Base):
+    """A persisted research bundle - a named study that ties together an entity
+    collection, an indicator collection, rules, a dashboard, and a cron pipeline
+    collection, and carries a generated markdown report.
+
+    Each `*_name`/`dashboard_slug`/`pipeline_collection_name` is a soft
+    by-name reference to the corresponding table (those tables enforce name/slug
+    uniqueness). `component_refs` is a JSON object for auxiliary references not
+    covered by the dedicated columns: `{"rules": [...], "scraw_tables": [...],
+    "indicators": [...]}`. `report_md` holds the assembled markdown body;
+    `report_path` is the on-disk file path. `status` is draft/active/archived.
     """
 
-    __tablename__ = "specialist_agents"
-    __table_args__ = (UniqueConstraint("name", name="uq_specialist_agent_name"),)
+    __tablename__ = "researches"
+    __table_args__ = (UniqueConstraint("name", name="uq_research_name"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(128), unique=True, nullable=False, index=True)
-    upstream = Column(String(64), nullable=False, index=True)  # leader_upstreams.name (soft ref)
-    role = Column(String(255), nullable=False)
-    goal = Column(Text, nullable=False)
-    backstory = Column(Text, nullable=True)
-    model = Column(String(64), nullable=True)  # LEADER_MODELS name; null = shared LLM_* fallback
-    enabled = Column(Boolean, default=True, nullable=False)
+    name = Column(String(128), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    status = Column(String(16), nullable=False, default="draft")  # draft | active | archived
+    entity_collection_name = Column(String(128), nullable=True)
+    indicator_collection_name = Column(String(128), nullable=True)
+    dashboard_slug = Column(String(128), nullable=True)
+    pipeline_collection_name = Column(String(128), nullable=True)
+    component_refs = Column(JSON, nullable=True)  # {rules, scraw_tables, indicators}
+    report_md = Column(Text, nullable=True)
+    report_path = Column(String(512), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime,
@@ -1595,30 +1451,43 @@ class SpecialistAgent(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    def to_dict(self, upstream_missing: bool = False) -> dict:
+    def to_dict(self) -> dict:
         return {
             "id": self.id,
             "name": self.name,
-            "upstream": self.upstream,
-            "upstream_missing": upstream_missing,
-            "role": self.role,
-            "goal": self.goal,
-            "backstory": self.backstory,
-            "model": self.model,
-            "enabled": bool(self.enabled),
+            "description": self.description,
+            "status": self.status,
+            "entity_collection_name": self.entity_collection_name,
+            "indicator_collection_name": self.indicator_collection_name,
+            "dashboard_slug": self.dashboard_slug,
+            "pipeline_collection_name": self.pipeline_collection_name,
+            "component_refs": self.component_refs or {},
+            "report_md": self.report_md,
+            "report_path": self.report_path,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
 class Workflow(Base):
-    """A named, ordered workflow of data-fetch steps over specialist agents."""
+    """A named, ordered workflow of data-fetch steps over specialist agents.
+
+    Manifest-backed workflows (D4) carry a `version` + `manifest` (JSON string)
+    + `enabled`; legacy step-row workflows predate those columns and run with
+    ``version=1``/``manifest=NULL``. The UNIQUE constraint is additively widened
+    to ``(name, version)`` by a named index at migration time (see
+    ``workflow_database._ensure_workflow_columns``) — the legacy name-only
+    autoindex is left in place (harmless while version defaults to 1).
+    """
 
     __tablename__ = "workflows"
-    __table_args__ = (UniqueConstraint("name", name="uq_workflow_name"),)
+    __table_args__ = (UniqueConstraint("name", "version", name="uq_workflow_name_version"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(128), nullable=False, index=True)
+    version = Column(Integer, nullable=False, default=1)
+    manifest = Column(Text, nullable=True)
+    enabled = Column(Boolean, nullable=False, default=True)
     description = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
@@ -1645,6 +1514,9 @@ class Workflow(Base):
         return {
             "id": self.id,
             "name": self.name,
+            "version": self.version,
+            "manifest": _json_loads(self.manifest) if self.manifest else None,
+            "enabled": self.enabled,
             "description": self.description,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "step_count": len(self.steps) if self.steps else 0,
@@ -1652,12 +1524,13 @@ class Workflow(Base):
 
 
 class WorkflowStep(Base):
-    """One step in a workflow: a specialist agent + a request (+ optional deps).
+    """One step in a workflow: a `fd-open-data-mcp` gateway call (tool + arguments, + optional deps).
 
     `depends_on` is a comma-separated list of prior step `sort_order` values
     whose raw output is injected as text context into this step's request.
     `on_fail` is "continue" (default — record error, keep going) or "stop".
-    `model` optionally overrides the agent's bound model for this step only.
+    `model` is reserved (unused by the direct-call executor). `agent` is a
+    legacy/sentinel column (nullable; new steps store `fd-open-data-mcp`).
     """
 
     __tablename__ = "workflow_steps"
@@ -1670,8 +1543,10 @@ class WorkflowStep(Base):
         index=True,
     )
     sort_order = Column(Integer, nullable=False)
-    agent = Column(String(128), nullable=False)  # specialist_agents.name (soft ref)
-    request = Column(Text, nullable=False)
+    agent = Column(String(128), nullable=True)  # legacy/sentinel (fd-open-data-mcp); unused by executor
+    request = Column(Text, nullable=True)  # optional human-readable description
+    tool = Column(String(128), nullable=True)  # fd-open-data-mcp tool name (e.g. 'read')
+    arguments_json = Column(Text, nullable=True)  # JSON object string of tool arguments
     depends_on = Column(String(255), nullable=True)  # "1,2" → inject prior step outputs
     on_fail = Column(String(16), nullable=False, default="continue")  # continue | stop
     model = Column(String(64), nullable=True)  # optional per-step override
@@ -1687,6 +1562,8 @@ class WorkflowStep(Base):
             "sort_order": self.sort_order,
             "agent": self.agent,
             "request": self.request,
+            "tool": self.tool,
+            "arguments": _json_loads(self.arguments_json) if self.arguments_json else None,
             "depends_on": [s.strip() for s in (self.depends_on or "").split(",") if s.strip()]
             if self.depends_on
             else [],

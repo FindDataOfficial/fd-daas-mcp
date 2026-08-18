@@ -50,7 +50,7 @@ def members(ctx):
 
 Returned items: a `str` (code, defaults to `stock`), `{"entity_type","code"}`, `{"entity_id":int}`, or an `int`. Unknown codes are skipped (not fatal). Return the **full intended set** each run - the sync diffs it. Scripts are read-only (`mode=ro`).
 
-> **Note:** the script runner that provides `ctx` lives at `fd-daas-mcp/daas-mcp/entity_rule_script.py` and is invoked by the `daas_sync_entity_collection` tool on the `fd-daas-mcp` server/CLI: `fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli daas sync_entity_collection name=<name> --json`. (The standalone `entity_collection_sync.py` has a known `models`-import limitation outside the server.) To sync without the CLI, run the script's `members()` logic manually against `sqlite3` reads and apply the diff via the add/remove pattern in `fd-daas-entities-collection` Step 4.
+> **Note:** the script runner that provides `ctx` lives at `fd-daas-mcp/daas-mcp/entity_rule_script.py` and is invoked by the `daas_sync_entity_collection` tool on the `fd-daas-mcp` server/CLI: `fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli daas sync_entity_collection name=<name> --json`. (The standalone `entity_collection_sync.py` has a known `models`-import limitation outside the server.) To sync without the CLI, run the script's `members()` logic manually against `sqlite3` reads and apply the diff via the add/remove pattern in `fd-daas-entities-collection` Step 4.
 
 ## Step 3 - Create the collection
 

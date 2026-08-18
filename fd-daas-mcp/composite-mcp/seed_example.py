@@ -12,8 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from composite_database import get_composite_db  # noqa: E402
 
-AKSHARE_VENV = "/Users/chengsishi/code/cli-anything/mcp/akshare-mcp/.venv/bin/fastmcp"
-AKSHARE_CWD = "/Users/chengsishi/code/cli-anything/mcp/akshare-mcp"
+AKSHARE_VENV = "/Users/chengsishi/code/daas/mcp/akshare-mcp/.venv/bin/fastmcp"
+AKSHARE_CWD = "/Users/chengsishi/code/daas/mcp/akshare-mcp"
 
 
 def main() -> None:

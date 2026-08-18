@@ -4,14 +4,14 @@ MCP Server for the pdf group - local PDF/text vector search.
 Exposes 6 tools:
   ingest_document  - ingest a PDF (file path or URL): extract, chunk, embed, persist
   ingest_text      - ingest raw text (no extraction)
-  search           - semantic KNN search over ingested chunks
+  search_documents - semantic KNN search over ingested chunks
   list_documents   - list ingested documents
   get_document     - get one document + chunk sample
   delete_document  - cascade-delete a document + its chunks + vectors
 
 Local only: sentence-transformers embeddings + sqlite-vec vec0 index in daas.db.
 No API key, no document egress. The group is optional and gated on `sqlite_vec`
-(see cli_anything/fd_daas_mcp/registry.py SOURCES).
+(see daas/fd_daas_mcp/registry.py SOURCES).
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ app = FastMCP(name="pdf-mcp")
 from pdf_tools import (
     ingest_document,
     ingest_text,
-    search,
+    search_documents,
     list_documents,
     get_document,
     delete_document,
@@ -48,7 +48,7 @@ from pdf_tools import (
 
 app.tool(ingest_document)
 app.tool(ingest_text)
-app.tool(search)
+app.tool(search_documents)
 app.tool(list_documents)
 app.tool(get_document)
 app.tool(delete_document)

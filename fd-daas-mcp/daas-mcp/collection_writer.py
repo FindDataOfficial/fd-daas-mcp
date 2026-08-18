@@ -45,12 +45,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # Load .env exactly like server.py does so DAAS_DATABASE_URL is set.
-# The repo-root .env (cli-anything/.env) is where DAAS_DATABASE_URL is
+# The repo-root .env (daas/.env) is where DAAS_DATABASE_URL is
 # actually defined; parent.parent is mcp/ (whose .env doesn't exist), so use
 # parents[2] to reach the repo root. Per-MCP .env still overrides.
 from dotenv import load_dotenv
 
-REPO_ROOT = Path(__file__).resolve().parents[2]  # cli-anything/
+REPO_ROOT = Path(__file__).resolve().parents[2]  # daas/
 load_dotenv(REPO_ROOT / ".env")
 load_dotenv(Path(__file__).parent / ".env", override=True)
 

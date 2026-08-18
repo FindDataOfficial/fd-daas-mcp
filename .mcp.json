@@ -2,9 +2,9 @@
   "mcpServers": {
     "fd-daas-mcp": {
       "type": "stdio",
-      "command": "/Users/chengsishi/code/cli-anything/fd-daas-mcp/bin/fd-daas-mcp-server",
+      "command": "/Users/chengsishi/code/DAAS/fd-daas-mcp/bin/fd-daas-mcp-server",
       "env": {
-        "DAAS_DATABASE_URL": "sqlite:////Users/chengsishi/code/cli-anything/daas.db"
+        "DAAS_DATABASE_URL": "sqlite:////Users/chengsishi/code/DAAS/daas.db"
       }
     }
   }

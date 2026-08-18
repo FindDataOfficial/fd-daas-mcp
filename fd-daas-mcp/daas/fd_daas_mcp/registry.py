@@ -33,13 +33,18 @@ SOURCES: dict[str, dict[str, Any]] = {
     "composite": {"dir": "composite-mcp", "inline": False},
     "daas":      {"dir": "daas-mcp",      "inline": False},
     "dashboard": {"dir": "dashboard-mcp", "inline": True},
-    "leader":    {"dir": "leader-mcp",    "inline": False},
+    "gateway":   {"dir": "gateway-mcp",   "inline": False},
     # Research group: persisted research bundle (entity+indicator collections,
     # rules, dashboard, cron pipeline + generated markdown report). inline=False
     # like daas - server.py imports tools from research_tools.py and registers
     # them via app.tool(<name>); surfaces as research_<name>. See
     # openspec/changes/add-concept-research.
     "research":  {"dir": "research-mcp",  "inline": False},
+    # Workflow group: manifest-driven ordered runs (workflows table + engine).
+    # inline=False like daas/research - server.py imports tools from
+    # workflow_tools.py and registers via app.tool(<name>); surfaces as
+    # workflow_<name>. See openspec/changes/rearchitect-daas-layered-mcps.
+    "workflow":  {"dir": "workflow-mcp",  "inline": False},
     # Optional groups: build() loads them only when ``dep`` imports, else records
     # the group as skipped_optional (INFO, not a failure). The pdf group is local
     # PDF/text vector search (sentence-transformers + sqlite-vec + pdfplumber);
@@ -322,8 +327,7 @@ def collisions() -> dict[str, list[str]]:
 
 def leaf_isolation_check() -> dict[str, dict[str, str]]:
     targets = {
-        "registry_service": [("daas", "registry_service.py"), ("leader", "registry_service.py")],
-        "database": [("cron", "database.py"), ("leader", "database.py")],
+        "database": [("cron", "database.py"), ("workflow", "database.py")],
     }
     out: dict[str, dict[str, str]] = {}
     for leaf, specs in targets.items():

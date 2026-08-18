@@ -66,7 +66,7 @@ sqlite3 daas.db "SELECT ch.changed_at, ch.action, ch.source, ch.reason, e.code, 
 The sync logic (rule re-evaluation + add_in/remove_out diff) lives at `fd-daas-mcp/daas-mcp/` (`entity_collection_sync.py` + `entity_rule_script.py`) and is exposed as the `daas_sync_entity_collection` tool on the `fd-daas-mcp` server/CLI - the working automated path:
 
 ```bash
-fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli daas sync_entity_collection name=<name> --json
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli daas sync_entity_collection name=<name> --json
 ```
 
 The standalone `entity_collection_sync.py` has a known `models`-import limitation when run outside the server, so prefer the CLI above. This skill is no-MCP-tools, so you can also sync manually via `sqlite3`:

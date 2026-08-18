@@ -58,8 +58,7 @@
 | `alert_rules` / `alert_events` | 告警规则 + 触发事件。 |
 | `schedules` / `tasks` / `executions` | cron 任务 + 调度 + 历史。 |
 | `composites` / `composite_chains` / `composite_tools` / `composite_upstreams` | 组合 MCP 服务器定义。 |
-| `leader_upstreams` / `specialist_agents` / `workflows` / `workflow_steps` / `workflow_runs` / `workflow_step_results` | Leader（CrewAI）层。 |
-| `data_snapshots` | 保存的函数调用快照。 |
+| `gateway_upstreams` / `workflows` / `workflow_steps` / `workflow_runs` / `workflow_step_results` | Gateway + workflow 层。 |
 | `settings` | 键值设置。 |
 
 ## 实用查询

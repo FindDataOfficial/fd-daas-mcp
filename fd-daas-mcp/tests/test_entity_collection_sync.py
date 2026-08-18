@@ -21,7 +21,7 @@ from pathlib import Path
 _DAAS_MCP = Path(__file__).resolve().parents[1] / "daas-mcp"
 sys.path.insert(0, str(_DAAS_MCP))
 from daas_database import get_database  # noqa: E402
-from models import Entity, EntityCollection, Rule  # noqa: E402
+from models import EntityCollection, Rule  # noqa: E402
 sys.path.remove(str(_DAAS_MCP))
 
 from daas.fd_daas_mcp import registry  # noqa: E402
@@ -29,18 +29,6 @@ from daas.fd_daas_mcp import registry  # noqa: E402
 
 def _tools() -> dict:
     return {n: fn for _, n, fn in registry.build()}
-
-
-def _seed() -> None:
-    sess = get_database().get_session()
-    sess.query(Entity).delete()
-    sess.add_all(
-        [
-            Entity(entity_type="stock", code="600519", name="贵州茅台", exchange="SSE"),
-            Entity(entity_type="stock", code="000001", name="平安银行", exchange="SZSE"),
-        ]
-    )
-    sess.commit()
 
 
 def _script_returning(codes: list[str]) -> str:
@@ -52,7 +40,6 @@ def _script_returning(codes: list[str]) -> str:
 def test_sync_script_rule_no_entity_rule_script_error():
     """The regression: syncing a script-rule collection via the evicted tool
     must not raise 'No module named entity_rule_script'."""
-    _seed()
     tools = _tools()
     res = tools["create_entity_collection"](
         name="zz_test_script", rule_script=_script_returning(["600519"])
@@ -68,22 +55,21 @@ def test_sync_script_rule_no_entity_rule_script_error():
 
 def test_sync_rule_id_precedence_over_legacy_rule_script():
     """rule_id takes precedence over a legacy rule_script on the same row."""
-    _seed()
     sess = get_database().get_session()
     rule = Rule(
         name="zz_test_rule_sse",
         rule_type="json",
         target="entity_ids",
-        config_json={"entity_type": "stock", "exchange": "SSE"},
+        config_json={"entity_type": "stock", "codes": ["600519"]},
     )
     sess.add(rule)
     sess.commit()
     tools = _tools()
-    # legacy rule_script would select SZSE (000001)
+    # legacy rule_script would select 000001
     tools["create_entity_collection"](
         name="zz_test_prec", rule_script=_script_returning(["000001"])
     )
-    # Attach rule_id (SSE) directly via the session, LEAVING rule_script set,
+    # Attach rule_id (600519) directly via the session, LEAVING rule_script set,
     # so _resolve_rule_for_collection's precedence (rule_id first) is exercised.
     coll = sess.query(EntityCollection).filter_by(name="zz_test_prec").first()
     coll.rule_id = rule.id
@@ -96,7 +82,6 @@ def test_sync_rule_id_precedence_over_legacy_rule_script():
 
 
 def test_sync_manual_collection_is_noop():
-    _seed()
     tools = _tools()
     tools["create_entity_collection"](name="zz_test_manual")
     out = tools["sync_entity_collection"](name="zz_test_manual")
@@ -104,7 +89,6 @@ def test_sync_manual_collection_is_noop():
 
 
 def test_sync_is_idempotent():
-    _seed()
     tools = _tools()
     tools["create_entity_collection"](
         name="zz_test_idem", rule_script=_script_returning(["600519"])
@@ -122,10 +106,9 @@ def test_cli_sync_entity_collection_subcommand():
 
     from daas.fd_daas_mcp.cli import cli
 
-    _seed()
     tools = _tools()
     tools["create_entity_collection"](
-        name="zz_test_cli", rule='{"entity_type":"stock","exchange":"SSE"}'
+        name="zz_test_cli", rule='{"entity_type":"stock","codes":["600519"]}'
     )
     result = CliRunner().invoke(
         cli, ["daas", "sync_entity_collection", "name=zz_test_cli", "--json"]

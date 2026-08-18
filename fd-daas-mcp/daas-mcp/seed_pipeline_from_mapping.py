@@ -1,5 +1,16 @@
 """Seed a pipeline_collection from the akshare datasource mapping.
 
+DEPRECATED: the `akshare-mcp` data-fetch upstream was removed when the 11
+per-source data-fetch MCPs were replaced by the single concept-based
+`fd-open-data-mcp` upstream (see
+openspec/changes/replace-datafetch-with-open-data-mcp). Items seeded here use
+`source_mcp="akshare-mcp"` + `call_akshare_function` (function-based, does not
+map to `fd-open-data-mcp`'s concept-based `read`), so they will fail at
+execution ("upstream 'akshare-mcp' not found"). Migrate these cron fetches to
+fd-open-data-mcp concept reads (where a binding exists) or to the skill-driven
+fetch path (.claude/skills/fd-daas-based-data-fetch, which calls akshare
+directly + upserts into scraw_<slug>).
+
 Loads the `t.md` data needs mapped in
 `openspec/changes/akshare-cron-data-pipeline/datasource-mapping.md` into a
 `pipeline_collection` (default name `akshare-t-md`) and adds one item per

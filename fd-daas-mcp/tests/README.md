@@ -19,7 +19,7 @@ Or from `fd-daas-mcp/`:
 
 ## What it covers
 
-- `test_registry.py` — `registry.build()` returns ≥170 tools across the 6 core
+- `test_registry.py` — `registry.build()` returns ≥155 tools across the 6 core
   groups; known cross-group collisions (`search_functions`, `run_rule`,
   `list_datasources`, `list_categories`, `get_function_detail`) are namespaced;
   leaf-module isolation (`registry_service`, `database`) resolves to distinct
@@ -33,6 +33,16 @@ Or from `fd-daas-mcp/`:
   required exit code 2, and async tools are awaited.
 - `test_selfcheck.py` — `selfcheck.run_invariants()` passes under pytest (same
   invariants as the `__main__` selfcheck, no drift).
+- `test_<group>_tools.py` (alerts/cron/composite/dashboard/gateway) - dedicated
+  behavioral coverage for the five core groups that previously had only
+  "registers ≥1 tool" coverage. Each calls the group's tool handlers directly
+  against the throwaway DB and asserts return shape + DB side-effects (CRUD
+  round-trips, validation rejections, side-effect writes), mirroring
+  `test_rule_tools.py`/`test_research_tools.py`. Live side-effects are
+  stubbed/suppressed per group (APScheduler for cron, notification dispatch for
+  alerts, upstream subprocess for composite/gateway, `_DASH_DIR` redirected to a
+  tmp dir for dashboard). See `daas-doc/mcp-test-suite.md` for the per-group
+  stubbing strategy.
 
 ## Environment notes
 

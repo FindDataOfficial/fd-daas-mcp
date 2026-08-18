@@ -19,7 +19,6 @@ sys.path.insert(0, str(_RESEARCH_MCP))
 from research_database import get_database  # noqa: E402
 from models import (  # noqa: E402
     Dashboard,
-    Entity,
     EntityCollection,
     EntityCollectionItem,
     IndicatorCollection,
@@ -66,16 +65,11 @@ def _seed_entity_collection(name="ec1", codes=("600519", "000001")) -> str:
     sess = _sess()
     sess.query(EntityCollectionItem).delete()
     sess.query(EntityCollection).filter_by(name=name).delete()
-    sess.query(Entity).delete()
-    for i, code in enumerate(codes):
-        sess.add(Entity(entity_type="stock", code=code, name=f"name-{code}", exchange="SSE"))
-    sess.flush()
     ec = EntityCollection(name=name)
     sess.add(ec)
     sess.flush()
     for i, code in enumerate(codes):
-        ent = sess.query(Entity).filter_by(code=code).first()
-        sess.add(EntityCollectionItem(collection_id=ec.id, entity_id=ent.id, sort_order=i))
+        sess.add(EntityCollectionItem(collection_id=ec.id, entity_type="stock", code=code, sort_order=i))
     sess.commit()
     sess.close()
     return name

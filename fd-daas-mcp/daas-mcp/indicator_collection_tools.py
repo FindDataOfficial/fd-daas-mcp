@@ -12,6 +12,7 @@ sources.score)` — item override → indicator default → datasource default.
 """
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 from daas_database import get_database
@@ -31,17 +32,21 @@ def _err(e: Exception) -> dict:
 
 
 def create_indicator_collection(
-    name: str, description: Optional[str] = None
+    name: str,
+    description: Optional[str] = None,
+    rule_id: Optional[int] = None,
 ) -> dict:
     """Create a named indicator collection (a reusable bundle of indicators).
 
     Args:
         name: Unique collection name.
         description: Optional description.
+        rule_id: Optional id of a `rules` row (target='indicator_names') whose
+            evaluation drives membership via `sync_indicator_collection`.
     """
     svc = _svc()
     try:
-        return _ok(svc.create_indicator_collection(name, description=description))
+        return _ok(svc.create_indicator_collection(name, description=description, rule_id=rule_id))
     except Exception as e:
         return _err(e)
 
@@ -69,12 +74,23 @@ def update_indicator_collection(
     name: str,
     new_name: Optional[str] = None,
     description: Optional[str] = None,
+    rule_id: Optional[int] = None,
+    clear_rule: bool = False,
 ) -> dict:
-    """Partially update an indicator collection's name and/or description.
-    At least one field must be provided."""
+    """Partially update an indicator collection's name, description, and/or
+    rule. At least one field must be provided. `clear_rule=True` resets
+    `rule_id` to NULL (manual collection)."""
     svc = _svc()
     try:
-        return _ok(svc.update_indicator_collection(name, new_name=new_name, description=description))
+        return _ok(
+            svc.update_indicator_collection(
+                name,
+                new_name=new_name,
+                description=description,
+                rule_id=rule_id,
+                clear_rule=clear_rule,
+            )
+        )
     except Exception as e:
         return _err(e)
 
@@ -212,3 +228,26 @@ def list_indicator_collection_changes(
         )
     except Exception as e:
         return _err(e)
+
+
+def sync_indicator_collection(name: str) -> dict:
+    """Re-derive the member set for a rule-based indicator collection by
+    evaluating its rule (target='indicator_names') via the RuleEngine, diff vs
+    current members, apply add_in/remove_out (source='cron'), and record every
+    transition. Returns `{added, removed, unchanged}`. A manual collection
+    (rule_id NULL) is a no-op.
+    """
+    svc = _svc()
+    try:
+        return _ok(svc.sync_indicator_collection(name))
+    except Exception as e:
+        return _err(e)
+
+
+def cli_sync_indicator_collection(name: str) -> int:
+    """CLI entry: run `sync_indicator_collection(name)` in-process, print a JSON
+    summary, return an exit code. For cron-mcp shell tasks
+    (`python server.py --sync-indicator-collection <name>`)."""
+    result = sync_indicator_collection(name)
+    print(json.dumps(result))
+    return 0 if not result.get("error") else 1

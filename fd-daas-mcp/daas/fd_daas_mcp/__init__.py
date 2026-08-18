@@ -7,7 +7,7 @@ per-group ``sys.modules`` isolation and re-exposes them under a collision-free
 ``<group>_<tool>`` namespace on one FastMCP server (and one Click CLI).
 
 Groups (core always-on unless the extra is absent): alerts, cron, composite,
-daas, dashboard, leader, pdf, cnreport, massive, scrapling, firecrawl.
+daas, dashboard, gateway, workflow, pdf, research.
 """
 
 __version__ = "0.1.0"

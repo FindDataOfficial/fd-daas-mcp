@@ -1,20 +1,21 @@
-"""Gateway tools for leader-mcp — route live data requests to the project's
-data-fetch MCPs via fastmcp.Client.
+"""Gateway tools — route live data requests to the project's
+data-fetch upstream (`fd-open-data-mcp`) via a persistent fastmcp.Client
+pool.
 
 Two layers:
 
-1. Async cores (`_list_tools_core`, `_call_tool_core`) — open a per-call
-   fastmcp.Client over a stdio transport built from a `leader_upstreams`
-   row, do the call, tear down. Shared by the FastMCP tools and the
-   sync wrappers used by the CrewAI DataCrew.
+1. Async cores (`_list_tools_core`, `_call_tool_core`) — get a reusable
+   client from the `gateway_client_pool` singleton (lazy-created, cached
+   across calls, rebuilt on config change). Shared by the FastMCP tools and
+   the sync wrappers used by the workflow layer.
 
 2. FastMCP tools — `list_data_mcps`, `list_data_mcp_tools`, `call_data_mcp`,
-   `ask_data_crew`, plus management CRUD (`add_data_mcp`, `remove_data_mcp`,
+   plus management CRUD (`add_data_mcp`, `remove_data_mcp`,
    `get_data_mcp`). Registered in server.py.
 
-The data-fetch MCPs are launched on demand as stdio subprocesses; their
-launch config lives in `leader_upstreams` (seeded from `.mcp.json`), so they
-can be removed from `.mcp.json` itself.
+The data-fetch upstream is kept alive between calls via a persistent
+client pool; its launch config lives in `gateway_upstreams` (seeded by
+`seed_upstreams.py`).
 """
 from __future__ import annotations
 
@@ -22,7 +23,8 @@ import asyncio
 import json
 from typing import Any, Optional
 
-from gateway_database import build_client, get_gateway_db
+from gateway_client_pool import get_client_pool
+from gateway_database import get_gateway_db
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -103,16 +105,14 @@ def _extract_result_data(result: Any) -> Any:
 
 
 async def _list_tools_core(server: str) -> dict:
-    db = get_gateway_db()
-    row = db.get_upstream(server)
-    if row is None:
-        return {"error": f"upstream '{server}' not found"}
-    if not row["enabled"]:
-        return {"error": f"upstream '{server}' is disabled"}
+    pool = get_client_pool()
     try:
-        async with build_client(row) as client:
-            tools = await client.list_tools()
-    except Exception as exc:  # noqa: BLE001 — surface any spawn/transport error
+        client = await pool.get_client(server)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    try:
+        tools = await client.list_tools()
+    except Exception as exc:  # noqa: BLE001 — surface any transport/call error
         return {"error": f"failed to list tools on '{server}': {type(exc).__name__}: {exc}"}
     items = []
     for t in tools:
@@ -125,15 +125,13 @@ async def _list_tools_core(server: str) -> dict:
 
 
 async def _call_tool_core(server: str, tool: str, arguments: dict) -> dict:
-    db = get_gateway_db()
-    row = db.get_upstream(server)
-    if row is None:
-        return {"error": f"upstream '{server}' not found"}
-    if not row["enabled"]:
-        return {"error": f"upstream '{server}' is disabled"}
+    pool = get_client_pool()
     try:
-        async with build_client(row) as client:
-            result = await client.call_tool(tool, arguments)
+        client = await pool.get_client(server)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    try:
+        result = await client.call_tool(tool, arguments)
     except Exception as exc:  # noqa: BLE001 — surface any call/transport error
         return {"error": f"call '{server}.{tool}' failed: {type(exc).__name__}: {exc}"}
     # fastmcp marks tool-level errors on the result
@@ -148,9 +146,9 @@ async def _call_tool_core(server: str, tool: str, arguments: dict) -> dict:
 
 
 def list_data_mcps(include_disabled: bool = False) -> dict:
-    """List the data-fetch MCP upstreams leader-mcp can route to.
+    """List the data-fetch MCP upstreams gateway-mcp can route to.
 
-    Each entry is a row from the `leader_upstreams` table (name, transport,
+    Each entry is a row from the `gateway_upstreams` table (name, transport,
     enabled, description). Disabled upstreams are hidden unless
     `include_disabled=True`.
 
@@ -175,9 +173,9 @@ def list_data_mcps(include_disabled: bool = False) -> dict:
 async def list_data_mcp_tools(server: str) -> dict:
     """List the tools exposed by a data-fetch MCP upstream (live).
 
-    Connects to the named upstream via a fastmcp.Client over stdio, calls
-    `list_tools()`, and returns each tool's name + description (+
-    parameters when available). The subprocess is torn down after the call.
+    Reuses the persistent client from the connection pool — the client stays
+    alive across calls and is only recreated when the upstream config changes.
+    Returns each tool's name + description (+ parameters when available).
 
     Args:
         server: The upstream name (e.g. 'yfinance').
@@ -188,10 +186,10 @@ async def list_data_mcp_tools(server: str) -> dict:
 async def call_data_mcp(server: str, tool: str, arguments: str = "{}") -> dict:
     """Call a tool on a data-fetch MCP upstream and return its result.
 
-    Connects to the named upstream via a fastmcp.Client over stdio, invokes
+    Connects to the named upstream via the persistent client pool, invokes
     the named tool with the JSON-deserialized `arguments`, and returns the
-    upstream's result. The subprocess is torn down after the call (success
-    or error).
+    upstream's result. The client stays alive across calls and is only
+    recreated when the upstream config changes.
 
     Args:
         server: The upstream name (e.g. 'yfinance').
@@ -208,24 +206,20 @@ async def call_data_mcp(server: str, tool: str, arguments: str = "{}") -> dict:
     return await _call_tool_core(server, tool, args_dict)
 
 
-def ask_data_crew(question: str) -> dict:
-    """Ask the CrewAI DataCrew to fetch data from the data-fetch MCPs.
-
-    Routes a natural-language data request to the right upstream tool using
-    a CrewAI crew (Manager + DataFetcher). When CrewAI is unavailable, falls
-    back to a deterministic direct router. Both paths terminate in
-    `call_data_mcp` and return the upstream's raw result.
-
-    Args:
-        question: Natural-language data request, e.g.
-                  'get AAPL 1-month price history'.
+def ask_data_crew(question: str) -> dict:  # noqa: ARG001 - removed, kept as a tombstone
+    """Removed: the CrewAI DataCrew NL router was deprecated when the 11
+    per-source data-fetch MCPs were replaced by the single `fd-open-data-mcp`
+    upstream. Callers should use `call_data_mcp('fd-open-data-mcp', 'read', …)`
+    (or the workflow layer for multi-step fetches) directly.
     """
-    from data_crew import DataCrew  # lazy import to avoid hard crewai dep at module load
-    return DataCrew().ask(question, verbose=False)
+    return {
+        "error": "ask_data_crew is removed; use call_data_mcp('fd-open-data-mcp', 'read', …) "
+                 "directly, or build_workflow_from_goal for multi-step fetches."
+    }
 
 
 # ═══════════════════════════════════════════════════════════════
-# FastMCP tools — management (CRUD over leader_upstreams)
+# FastMCP tools — management (CRUD over gateway_upstreams)
 # ═══════════════════════════════════════════════════════════════
 
 
@@ -238,6 +232,7 @@ def add_data_mcp(
     cwd: Optional[str] = None,
     enabled: bool = True,
     description: Optional[str] = None,
+    url: Optional[str] = None,
 ) -> dict:
     """Add or update a data-fetch MCP upstream (idempotent upsert by name).
 
@@ -250,10 +245,12 @@ def add_data_mcp(
         cwd: stdio working directory.
         enabled: If False, the upstream is stored but hidden from gateway tools.
         description: Optional human-readable description.
+        url: HTTP transport URL (required when transport='http').
     """
     row = get_gateway_db().upsert_upstream(
         name=name,
         transport=transport,
+        url=url,
         command=command,
         args=args,
         env=env,
@@ -287,92 +284,109 @@ def get_data_mcp(name: str) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════
-# Generic aliases — category-agnostic names over the same implementation.
-# `leader-mcp` is the single client-facing entry point; these tools route
-# to ANY upstream in leader_upstreams (data-fetch or otherwise). The
-# `*_data_mcp` tools above remain as back-compat aliases.
+# health probe — ping each http upstream, auto-flip transport on
+# failure/recovery. Mirrors the client-pool fallback path (client_pool.py
+# lines 134-165): on http failure + stdio command present → flip to stdio;
+# on recovery of a stdio-flipped row whose url is set → flip back to http.
+# The pool self-heals on its next get_client() (key change → rebuild).
 # ═══════════════════════════════════════════════════════════════
 
 
-def list_mcps(include_disabled: bool = False) -> dict:
-    """List all MCP upstreams leader-mcp can route to (generic alias for list_data_mcps).
+async def _ping_http(url: str, timeout: float = 5.0) -> tuple[bool, str]:
+    """Lightweight HTTP reachability probe for an MCP endpoint.
 
-    Args:
-        include_disabled: If True, also return disabled upstreams.
+    Builds a throwaway ``Client(StreamableHttpTransport(url))`` and tries
+    ``__aenter__`` with a short timeout. Returns ``(reachable, message)``.
+    Never raises — network errors are captured as ``reachable=False`` so the
+    probe is safe to call from selfcheck.
     """
-    return list_data_mcps(include_disabled=include_disabled)
+    from fastmcp import Client
+    from fastmcp.client.transports import StreamableHttpTransport
+
+    client = Client(StreamableHttpTransport(url))
+    try:
+        await asyncio.wait_for(client.__aenter__(), timeout=timeout)
+    except Exception as exc:  # noqa: BLE001 — any transport error = unreachable
+        return False, f"{type(exc).__name__}: {exc}"
+    try:
+        await asyncio.wait_for(client.__aexit__(None, None, None), timeout=timeout)
+    except Exception:  # noqa: BLE001 — teardown errors are irrelevant
+        pass
+    return True, f"OK ({url})"
 
 
-async def list_mcp_tools(server: str) -> dict:
-    """List the tools exposed by an MCP upstream (generic alias for list_data_mcp_tools).
+async def gateway_health() -> dict:
+    """Health-probe each enabled gateway upstream and auto-flip transport.
 
-    Args:
-        server: The upstream name (e.g. 'yfinance' or 'cron-mcp').
+    For each enabled upstream in ``gateway_upstreams``:
+
+    - **http** transport: ping the row's ``url``. On failure AND the row
+      carries a stdio ``command``, flip ``transport`` to ``stdio`` (degraded
+      mode — mirrors the client-pool fallback so the next ``get_client()``
+      launches the subprocess). On success, no change.
+    - **stdio** transport with a ``url`` set (i.e. it was flipped from http by
+      a prior fallback): ping the ``url``. On success flip ``transport`` back
+      to ``http`` (recovered). On failure, leave as stdio.
+    - **stdio**-only (no ``url``): skipped (nothing to probe).
+
+    Returns a per-upstream status report. Never raises — network errors are
+    captured as degraded states so the probe is safe to call from selfcheck.
     """
-    return await list_data_mcp_tools(server)
+    db = get_gateway_db()
+    rows = db.list_upstreams(include_disabled=False)
+    results = []
+    for row in rows:
+        name = row["name"]
+        transport = row.get("transport")
+        url = row.get("url")
+        command = row.get("command")
+        entry: dict[str, Any] = {
+            "name": name,
+            "transport_before": transport,
+            "url": url,
+        }
+        if transport == "http" and url:
+            ok, msg = await _ping_http(url)
+            entry["reachable"] = ok
+            entry["detail"] = msg
+            if not ok and command:
+                db.set_transport(name, "stdio")
+                entry["transport_after"] = "stdio"
+                entry["action"] = "flipped-to-stdio (http unreachable, stdio fallback armed)"
+            elif not ok:
+                entry["transport_after"] = transport
+                entry["action"] = "degraded (http down, no stdio fallback)"
+            else:
+                entry["transport_after"] = transport
+                entry["action"] = "healthy"
+        elif transport == "stdio" and url:
+            # likely flipped from http by the fallback path; probe recovery
+            ok, msg = await _ping_http(url)
+            entry["reachable"] = ok
+            entry["detail"] = msg
+            if ok:
+                db.set_transport(name, "http")
+                entry["transport_after"] = "http"
+                entry["action"] = "flipped-to-http (endpoint recovered)"
+            else:
+                entry["transport_after"] = transport
+                entry["action"] = "degraded (stdio mode, http still down)"
+        else:
+            entry["reachable"] = None
+            entry["transport_after"] = transport
+            entry["action"] = "skipped (stdio-only upstream, no url to probe)"
+        results.append(entry)
+    return {"count": len(results), "upstreams": results}
 
 
-async def call_mcp(server: str, tool: str, arguments: str = "{}") -> dict:
-    """Call a tool on an MCP upstream and return its result (generic alias for call_data_mcp).
+def gateway_health_sync() -> dict:
+    """Sync wrapper around :func:`gateway_health` for selfcheck / CLI use.
 
-    Args:
-        server: The upstream name (e.g. 'yfinance' or 'cron-mcp').
-        tool: The tool name on that upstream.
-        arguments: JSON object string of argument name→value pairs.
+    Runs the async probe in a fresh event loop. Safe to call from a sync
+    context (CLI, selfcheck main). Do NOT call from inside a running event
+    loop — invoke ``await gateway_health()`` directly there.
     """
-    return await call_data_mcp(server, tool, arguments)
-
-
-def add_mcp(
-    name: str,
-    transport: str = "stdio",
-    command: Optional[str] = None,
-    args: Optional[list] = None,
-    env: Optional[dict] = None,
-    cwd: Optional[str] = None,
-    enabled: bool = True,
-    description: Optional[str] = None,
-) -> dict:
-    """Add or update an MCP upstream (generic alias for add_data_mcp).
-
-    Args:
-        name: Unique upstream name (used as the `server` argument by gateway tools).
-        transport: 'stdio' (default) or 'http'.
-        command: stdio executable (e.g. 'uv' or a fastmcp binary).
-        args: stdio argv list.
-        env: optional stdio env overrides (merged with the current env).
-        cwd: stdio working directory.
-        enabled: If False, the upstream is stored but hidden from gateway tools.
-        description: Optional human-readable description.
-    """
-    return add_data_mcp(
-        name=name,
-        transport=transport,
-        command=command,
-        args=args,
-        env=env,
-        cwd=cwd,
-        enabled=enabled,
-        description=description,
-    )
-
-
-def remove_mcp(name: str) -> dict:
-    """Remove an MCP upstream from the registry (generic alias for remove_data_mcp).
-
-    Args:
-        name: The upstream name to delete.
-    """
-    return remove_data_mcp(name)
-
-
-def get_mcp(name: str) -> dict:
-    """Get one MCP upstream's full launch config (generic alias for get_data_mcp).
-
-    Args:
-        name: The upstream name.
-    """
-    return get_data_mcp(name)
+    return asyncio.run(gateway_health())
 
 
 # ═══════════════════════════════════════════════════════════════

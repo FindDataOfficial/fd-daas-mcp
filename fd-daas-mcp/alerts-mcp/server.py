@@ -11,7 +11,7 @@ Tools (10):
   update_alert_rule    — update rule fields (only provided ones)
   delete_alert_rule    — delete a rule (cascades to its events)
   list_channels        — which of the 7 channels are configured (no secrets)
-  run_rule             — ad-hoc evaluate + dispatch one rule now
+  run_alert_rule       - ad-hoc evaluate + dispatch one rule now
   list_events          — recent alert_events (optionally for one rule)
 
 Cron: `python server.py --run-rule <name>` (one rule) or `--run-all` (every
@@ -170,7 +170,7 @@ def list_channels() -> dict:
 
 
 @app.tool
-def run_rule(name: str) -> dict:
+def run_alert_rule(name: str) -> dict:
     """Ad-hoc: evaluate one rule now and dispatch if it fires.
 
     Respects fire_mode + cooldown like the cron path. Use to test a rule on demand.

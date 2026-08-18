@@ -22,15 +22,13 @@ Contract for `members(ctx)`:
 
     def members(ctx):
         rows = ctx.query(
-            "SELECT code FROM entities WHERE exchange = 'SSE' AND entity_type = 'stock'"
+            "SELECT code FROM entity_collection_items WHERE collection_id = 7"
         )
         return [r["code"] for r in rows]
 
 Each returned item may be:
-  - int  → an entity id directly
   - str  → a stock code (entity_type defaults to 'stock')
   - dict → {"entity_type": "stock", "code": "600519"}
-            or {"entity_id": 123}
 
 Items that don't resolve to a known entity are skipped (a sync shouldn't fail
 the whole collection over one delisted code); the EntityCollectionService

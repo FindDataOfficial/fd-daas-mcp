@@ -4,7 +4,7 @@ Asserts the optional-group contract from
 openspec/changes/add-pdf-vector-search/specs/fd-daas-mcp-test-suite/spec.md:
   - ``pdf`` is registered as an OPTIONAL group gated on ``sqlite_vec``.
   - When the dep is absent, ``pdf`` is ``skipped_optional`` (not ``failed``)
-    and the six core groups + ``>= 170`` tools still hold.
+    and the six core groups + ``>= 155`` tools still hold.
   - When the dep is present, ``pdf`` registers its tools (skipped otherwise).
 
 No model download, no network. The "absent" case is simulated by monkeypatching
@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import pytest
 
-from cli_anything.fd_daas_mcp import registry
+from daas.fd_daas_mcp import registry
 
-CORE = {"alerts", "cron", "composite", "daas", "dashboard", "leader"}
+CORE = {"alerts", "cron", "composite", "daas", "dashboard", "gateway"}
 
 
 def _group_counts(tools):
@@ -39,7 +39,7 @@ def test_pdf_is_optional_group_gated_on_sqlite_vec():
 
 def test_pdf_skipped_when_dep_absent(monkeypatch):
     """When sqlite_vec is not importable, pdf is skipped_optional and the core
-    six groups + >= 170 tools still hold."""
+    six groups + >= 155 tools still hold."""
     real_can_import = registry._can_import
 
     def fake_can_import(modname: str) -> bool:
@@ -60,7 +60,7 @@ def test_pdf_skipped_when_dep_absent(monkeypatch):
     assert not any(f[0] == "pdf" for f in rep["failed"]), "pdf absence must not be a failure"
     # Core invariants unchanged.
     assert CORE <= set(counts), f"missing core groups: {CORE - set(counts)}"
-    assert len(tools) >= 170, f"expected >= 170 tools, got {len(tools)}"
+    assert len(tools) >= 155, f"expected >= 155 tools, got {len(tools)}"
 
 
 def test_pdf_registered_when_dep_present():
@@ -79,4 +79,4 @@ def test_pdf_registered_when_dep_present():
     assert counts["pdf"] == 6, f"expected 6 pdf tools, got {counts['pdf']}"
     # Core invariants still hold alongside the optional group.
     assert CORE <= set(counts)
-    assert len(tools) >= 170
+    assert len(tools) >= 155

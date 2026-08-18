@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -25,7 +26,6 @@ from models import (
     IndicatorCollectionItem,
     IndicatorRule,
     ProcessResult,
-    ProcessRule,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,51 @@ def validate_identifier(name: str) -> None:
     """Raise ProcessError if `name` is not a safe SQL identifier."""
     if not name or not _IDENT_RE.match(name):
         raise ProcessError(f"invalid identifier: {name!r}")
+
+
+# indicator_tools imports `from process_database import ProcessError,
+# validate_identifier` (circular). The consolidated registry loads this module
+# under a unique `_fdsrc_daas__process_database` name and evicts `daas-mcp/`
+# from sys.path + sys.modules after build(), so the bare deferred
+# `import indicator_tools` inside methods failed at call time (the same class
+# of regression the rule_engine path-based load fixed). This loader resolves
+# indicator_tools from its sibling file path and temporarily exposes THIS
+# module under the plain `process_database` name so the circular import binds
+# to the live instance. Cached so it runs once per module instance.
+_IT_CACHE = None
+
+
+# Cached indicator_tools module (loaded lazily; see _load_indicator_tools).
+_IT_CACHE = None
+# The live module object, captured at import time. The consolidated registry
+# loads this module under a unique `_fdsrc_*` name and evicts `_fdsrc_*` from
+# sys.modules after build(), so sys.modules[__name__] is None at call time -
+# this lets _load_indicator_tools re-expose the module under the plain
+# `process_database` name for indicator_tools' circular `from process_database
+# import ProcessError, validate_identifier`.
+_SELF_MODULE = sys.modules.get(__name__)
+
+
+def _load_indicator_tools():
+    global _IT_CACHE
+    if _IT_CACHE is not None:
+        return _IT_CACHE
+    import importlib.util
+    _prev = sys.modules.get("process_database")
+    if _SELF_MODULE is not None:
+        sys.modules["process_database"] = _SELF_MODULE
+    try:
+        spec = importlib.util.spec_from_file_location("indicator_tools", Path(__file__).resolve().parent / "indicator_tools.py")
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["indicator_tools"] = mod
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    finally:
+        if _prev is not None:
+            sys.modules["process_database"] = _prev
+        elif _SELF_MODULE is not None:
+            sys.modules.pop("process_database", None)
+    _IT_CACHE = mod
+    return mod
 
 
 def _resolve_url(url: str) -> str:
@@ -98,12 +143,20 @@ class ProcessDatabase:
         )
         # SQLite ignores ON DELETE CASCADE unless PRAGMA foreign_keys=ON.
         # ponytail: enable per-connection so delete_rule cascade fires.
+        # WAL + busy_timeout fix "database is locked" when the in-process
+        # workflow engine (Database singleton) holds a connection while
+        # ProcessDatabase.upsert_observations writes the same sqlite file
+        # (journal_mode=delete serializes writers and throws). WAL allows
+        # concurrent readers + one writer; busy_timeout makes a writer wait
+        # instead of failing immediately. Mirrors daas_database.py.
         if self._engine.dialect.name == "sqlite":
 
             @event.listens_for(self._engine, "connect")
             def _enable_fk(dbapi_conn, _record):
                 cur = dbapi_conn.cursor()
                 cur.execute("PRAGMA foreign_keys=ON")
+                cur.execute("PRAGMA journal_mode=WAL")
+                cur.execute("PRAGMA busy_timeout=10000")
                 cur.close()
 
         self._session_factory = sessionmaker(bind=self._engine)
@@ -170,114 +223,6 @@ class ProcessDatabase:
                 out.append({"name": tbl, "row_count": cnt, "columns": cols})
         return out
 
-    # ── ProcessRule CRUD ────────────────────────────────────────
-
-    def create_rule(
-        self,
-        name: str,
-        source_table: str,
-        text_column: str,
-        schema_json: dict,
-        prompt: Optional[str] = None,
-        model: Optional[str] = None,
-        max_chars: int = 12000,
-        datasource: Optional[str] = None,
-        enabled: bool = True,
-    ) -> dict:
-        validate_identifier(source_table)
-        validate_identifier(text_column)
-        if not self.table_exists(source_table):
-            raise ProcessError(f"source table not found: {source_table}")
-        if not self.column_exists(source_table, text_column):
-            raise ProcessError(f"text_column not found in source table: {text_column}")
-        session = self.get_session()
-        try:
-            existing = (
-                session.query(ProcessRule).filter(ProcessRule.name == name).first()
-            )
-            if existing is not None:
-                raise ProcessError(f"rule name already exists: {name}")
-            row = ProcessRule(
-                name=name,
-                source_table=source_table,
-                text_column=text_column,
-                schema_json=schema_json,
-                prompt=prompt,
-                model=model,
-                max_chars=max_chars,
-                datasource=datasource,
-                enabled=enabled,
-            )
-            session.add(row)
-            session.commit()
-            session.refresh(row)
-            return row.to_dict()
-        finally:
-            session.close()
-
-    def list_rules(self) -> list[dict]:
-        session = self.get_session()
-        try:
-            return [r.to_dict() for r in session.query(ProcessRule).order_by(ProcessRule.name).all()]
-        finally:
-            session.close()
-
-    def get_rule(self, name: str) -> Optional[dict]:
-        session = self.get_session()
-        try:
-            row = session.query(ProcessRule).filter(ProcessRule.name == name).first()
-            return row.to_dict() if row else None
-        finally:
-            session.close()
-
-    def get_rule_row(self, name: str) -> Optional[ProcessRule]:
-        session = self.get_session()
-        try:
-            return session.query(ProcessRule).filter(ProcessRule.name == name).first()
-        finally:
-            session.close()
-
-    def update_rule(self, name: str, **fields) -> dict:
-        session = self.get_session()
-        try:
-            row = session.query(ProcessRule).filter(ProcessRule.name == name).first()
-            if row is None:
-                raise ProcessError(f"rule not found: {name}")
-            # validate new source_table/text_column if provided
-            if "source_table" in fields and fields["source_table"] is not None:
-                validate_identifier(fields["source_table"])
-                if not self.table_exists(fields["source_table"]):
-                    raise ProcessError(f"source table not found: {fields['source_table']}")
-            if "text_column" in fields and fields["text_column"] is not None:
-                validate_identifier(fields["text_column"])
-                tbl = fields.get("source_table") or row.source_table
-                if not self.column_exists(tbl, fields["text_column"]):
-                    raise ProcessError(f"text_column not found in source table: {fields['text_column']}")
-            for k, v in fields.items():
-                if v is None:
-                    continue
-                if k == "name":
-                    continue  # name is the key; do not rename via update
-                if hasattr(row, k):
-                    setattr(row, k, v)
-            session.commit()
-            session.refresh(row)
-            return row.to_dict()
-        finally:
-            session.close()
-
-    def delete_rule(self, name: str) -> bool:
-        session = self.get_session()
-        try:
-            row = session.query(ProcessRule).filter(ProcessRule.name == name).first()
-            if row is None:
-                return False
-            session.delete(row)  # FK CASCADE removes process_results rows
-            session.commit()
-            return True
-        finally:
-            session.close()
-
     # ── ProcessResult ───────────────────────────────────────────
 
     def upsert_result(
@@ -342,16 +287,6 @@ class ProcessDatabase:
             rows = conn.execute(sql, {"cursor": cursor, "batch": batch}).fetchall()
         return [(r[0], r[1] or "") for r in rows]
 
-    def advance_cursor(self, rule_id: int, last_rowid: int) -> None:
-        session = self.get_session()
-        try:
-            row = session.get(ProcessRule, rule_id)
-            if row is not None and last_rowid > row.last_rowid:
-                row.last_rowid = last_rowid
-                session.commit()
-        finally:
-            session.close()
-
     # ── IndicatorRule CRUD + run ────────────────────────────────
     # indicator_tools is imported lazily inside methods to avoid a circular
     # import (indicator_tools imports ProcessError/validate_identifier from
@@ -381,8 +316,7 @@ class ProcessDatabase:
         score: Optional[float] = None,
         enabled: bool = True,
     ) -> dict:
-        import indicator_tools as IT
-
+        IT = _load_indicator_tools()
         validate_identifier(source_table)
         validate_identifier(date_column)
         validate_identifier(value_column)
@@ -491,8 +425,7 @@ class ProcessDatabase:
             session.close()
 
     def update_indicator(self, name: str, **fields) -> dict:
-        import indicator_tools as IT
-
+        IT = _load_indicator_tools()
         session = self.get_session()
         try:
             row = session.query(IndicatorRule).filter(IndicatorRule.name == name).first()
@@ -632,7 +565,7 @@ class ProcessDatabase:
         Idempotent via the observations unique constraint. No incremental
         cursor (windowed ops need lookback — see indicator_tools ceiling note).
         """
-        import indicator_tools as IT
+        IT = _load_indicator_tools()
         import numpy as np
         import pandas as pd
 

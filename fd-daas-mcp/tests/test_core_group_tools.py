@@ -1,6 +1,6 @@
 """Per-core-group tool invocation coverage.
 
-Every core group (alerts/cron/composite/daas/dashboard/leader) must have at
+Every core group (alerts/cron/composite/daas/dashboard/gateway) must have at
 least one tool *invoked through its registered handler*, not only counted in
 the registration report. Guards against a group silently going dark where
 ``registry.build()`` lists its tools but every handler is unresolvable or
@@ -18,7 +18,7 @@ import json
 
 from daas.fd_daas_mcp import registry
 
-CORE = ["alerts", "cron", "composite", "daas", "dashboard", "leader"]
+CORE = ["alerts", "cron", "composite", "daas", "dashboard", "gateway"]
 
 # One read-only listing tool per core group. Chosen to need no network and to
 # tolerate an empty (but schema-initialized) throwaway DB. Bare tool names -
@@ -29,7 +29,7 @@ PREFERRED = {
     "composite": "list",            # table created by daas create_all (shared Base)
     "daas": "list_sources",         # daas create_all seeds the full schema
     "dashboard": "list_databases",  # filesystem listing; no DB
-    "leader": "list_harnesses",     # leader tables created by daas create_all
+    "gateway": "list_data_mcps",     # gateway tables created by daas create_all
 }
 
 
@@ -57,7 +57,7 @@ def test_every_core_group_has_an_invokable_tool():
     end-to-end without an unhandled wiring error."""
     by_group = _by_group()
     # Prime the full schema: daas create_all builds every shared-Base table in
-    # the throwaway DB so composite/leader/cron listing tools find their tables.
+    # the throwaway DB so composite/gateway/cron listing tools find their tables.
     daas_fn = by_group["daas"].get("list_sources")
     if daas_fn is not None:
         _call(daas_fn)

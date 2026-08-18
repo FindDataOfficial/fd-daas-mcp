@@ -4,8 +4,17 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.pytest_cache/
 *.db
 !/daas.db
+# SQLite WAL/journal sidecars + db backups (never track the multi-file db state)
+*.db-shm
+*.db-wal
+*.db-journal
+*.db.bak*
+
+# Docs site build output (docs-site/) - never commit the generated static site
+docs-site/site/
 
 # Secrets / env files (keep .env.example templates tracked)
 .env
@@ -48,5 +57,8 @@ mcp/cnreport-mcp/.cache/
 # Logs
 *.log
 
-# Docs site build output (docs-site/) - never commit the generated static site
-docs-site/site/
+# Skill eval run-outputs (regenerable; keep evals/ fixtures + grade_run.py)
+.claude/skills/**/iteration-*/
+
+# daas.db pre-migration backups (local only)
+daas.db.pre-*

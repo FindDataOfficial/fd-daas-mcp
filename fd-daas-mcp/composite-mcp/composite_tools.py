@@ -14,6 +14,8 @@ Two kinds:
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 from typing import Any, Optional
 
 from fastmcp import Client
@@ -26,15 +28,15 @@ from composite_database import build_client, get_composite_db
 # ═══════════════════════════════════════════════════════════════
 
 
-def list_composites() -> str:
+def list() -> str:  # noqa: A004 (intentional: registers as composite_list)
     """List all defined composites (name + description)."""
     rows = get_composite_db().list_composites()
     if not rows:
-        return "No composites defined. Use create_composite(name, description)."
+        return "No composites defined. Use create(name, description)."
     return "\n".join(f"{r['name']}: {r['description'] or '(no description)'}" for r in rows)
 
 
-def create_composite(name: str, description: Optional[str] = None) -> str:
+def create(name: str, description: Optional[str] = None) -> str:
     """Create a new composite. Raises if the name already exists.
 
     Args:
@@ -171,7 +173,7 @@ def remove_tool(composite: str, upstream_key: str, tool_name: str) -> str:
     return f"Removed tool {tool_name} from {upstream_key} in {composite}."
 
 
-def list_composite_tools(composite: str) -> str:
+def list_tools(composite: str) -> str:
     """List the tools currently selected for a composite."""
     comp = _require_composite(composite)
     rows = get_composite_db().list_composite_tools(comp.id)
@@ -225,6 +227,63 @@ def list_chained_tools(composite: str) -> str:
     return "\n".join(
         f"{r['name']}: {len(r['steps'])} steps — {r['description'] or ''}" for r in rows
     )
+
+
+# ═══════════════════════════════════════════════════════════════
+# management tools — manifests (manifest-mode CRUD over relational schema)
+# ═══════════════════════════════════════════════════════════════
+
+
+def create_manifest(
+    name: str,
+    upstreams: list,
+    tools: list,
+    workflows: Optional[list] = None,
+    prompt: Optional[str] = None,
+    description: Optional[str] = None,
+) -> str:
+    """Create a composite manifest: composite + upstreams + tools + workflows + prompt in one call.
+
+    Args:
+        name: Unique composite name (used as COMPOSITE env to serve it).
+        upstreams: [{key, transport, command?, args?, env?, cwd?, url?}].
+        tools: [{upstream (key), tool (name), alias?}].
+        workflows: Names of registered workflow manifests to surface inside this composite.
+        prompt: System prompt text for the composite surface.
+        description: Optional human-readable description.
+    """
+    row = get_composite_db().create_manifest(
+        name, upstreams, tools, workflows, prompt, description
+    )
+    return json.dumps(row, ensure_ascii=False, default=str)
+
+
+def update_manifest(
+    name: str,
+    upstreams: Optional[list] = None,
+    tools: Optional[list] = None,
+    workflows: Optional[list] = None,
+    prompt: Optional[str] = None,
+    description: Optional[str] = None,
+) -> str:
+    """Partially update a composite manifest. Only provided fields change.
+
+    upstreams/tools (when given) REPLACE the existing sets wholesale.
+    """
+    row = get_composite_db().update_manifest(
+        name, upstreams, tools, workflows, prompt, description
+    )
+    return json.dumps(row, ensure_ascii=False, default=str)
+
+
+def delete_manifest(name: str) -> str:
+    """Delete a composite manifest (cascades upstreams/tools/chains)."""
+    return json.dumps(get_composite_db().delete_manifest(name), ensure_ascii=False)
+
+
+def list_manifests() -> str:
+    """List all composites as manifests (name, upstreams, tools, workflows, prompt)."""
+    return json.dumps(get_composite_db().list_manifests(), ensure_ascii=False, default=str)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -307,7 +366,7 @@ def make_proxy_tool(
     The upstream is spawned ONLY when the tool is called (per-call
     `build_client`), so listing the composite's tools never spawns the
     upstream — this avoids the nested stdio spawn that previously failed
-    with "Connection closed" when leader-mcp listed composite-mcp's tools
+    with "Connection closed" when gateway-mcp listed composite-mcp's tools
     (the old `create_proxy` + `app.mount` approach eagerly spawned the
     upstream at list time). Mirrors `make_chain_tool`'s spawn-on-call pattern.
 
@@ -348,3 +407,35 @@ def make_proxy_tool(
         f"Call with a JSON object of the upstream tool's arguments."
     )
     return FunctionTool.from_function(_proxy, name=served_name, description=desc)
+
+
+def make_workflow_tool(name: str, description: Optional[str] = None) -> FunctionTool:
+    """Build a lazy FunctionTool that runs a registered workflow manifest.
+
+    ``name`` references a row in the ``workflows`` table (registered via
+    ``workflow_register``). The workflow engine's ``run`` is imported lazily
+    inside the tool body (the workflow-mcp dir is added to sys.path on call),
+    so listing the composite's tools never imports the workflow engine — this
+    mirrors the spawn-on-call pattern of ``make_proxy_tool``/``make_chain_tool``.
+
+    Args:
+        name: The registered workflow manifest name.
+        description: Optional tool description.
+    """
+
+    async def _wf(params_json: str = "{}") -> Any:
+        wf = Path(__file__).resolve().parents[1] / "workflow-mcp"
+        if str(wf) not in sys.path:
+            sys.path.insert(0, str(wf))
+        try:
+            from workflow_tools import run as workflow_run  # type: ignore
+        except Exception as exc:  # noqa: BLE001 - surface import errors to the caller
+            return {"error": f"workflow engine unavailable: {type(exc).__name__}: {exc}"}
+        try:
+            return workflow_run(name, params_json)
+        except Exception as exc:  # noqa: BLE001 - step errors are captured in the summary, not raised
+            return {"error": f"workflow {name!r} failed: {type(exc).__name__}: {exc}"}
+
+    _wf.__name__ = name
+    desc = description or f"Run workflow '{name}'. Call with a JSON object of workflow params."
+    return FunctionTool.from_function(_wf, name=name, description=desc)

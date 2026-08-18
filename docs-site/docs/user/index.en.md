@@ -13,8 +13,8 @@ DAAS is a local data platform. Out of the box it ships with:
 - **Hundreds of prebuilt indicator rules** (and the platform scales to thousands
   as you add datasources) - moving averages, RSI, rolling volatility, pct
   change, z-scores, and macro/economic series.
-- **8 MCP tool groups** (alerts, cron, composite, daas, dashboard, leader, pdf,
-  research) for browsing, scheduling, alerting, and orchestration.
+- **9 MCP tool groups** (alerts, cron, composite, daas, dashboard, gateway,
+  workflow, pdf, research) for browsing, scheduling, alerting, and orchestration.
 - **40+ skills** that wrap common workflows (fetch, research, dashboard,
   collections, PDF search, web scraping).
 

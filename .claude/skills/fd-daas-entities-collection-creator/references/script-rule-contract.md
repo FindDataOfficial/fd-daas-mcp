@@ -1,6 +1,8 @@
 # Script-rule contract
 
-A `rule_script` is a Python file defining a top-level `members(ctx)` that returns the intended member set of an entity collection. `sync_entity_collection` loads the script, calls `members(ctx)`, diffs the result against the current members, and records add_in / remove_out in `entity_collection_changes`.
+A script rule is a Python file defining a top-level `members(ctx)` that returns the intended member set of an entity collection. `sync_entity_collection` loads the script via the `RuleEngine`, calls `members(ctx)`, diffs the result against the current members, and records add_in / remove_out in `entity_collection_changes`.
+
+**Canonical path (unified `rules` table):** create a `rules` row with `rule_type='script'`, `target='entity_ids'`, `config_json={"script_path": "rules/entity_collections/<name>.py", "function": "members"}`, then attach it to the collection via `rule_id` (`daas_create_entity_collection(rule_id=…)`). The legacy `entity_collections.rule_script` column still works (back-compat) and is treated as a `script` rule by the engine. Either way, the script is loaded path-based via `importlib` - this is the fix for the old `No module named 'entity_rule_script'` error. See `fd-daas-rules-creator` / `references/rule-types.md` for the full rule-type contract.
 
 ## `members(ctx)` signature
 
@@ -10,6 +12,8 @@ def members(ctx):
     #   Runs a SELECT against daas.db (read-only — SQLite mode=ro).
     #   Each row is a dict keyed by column name. params may be a tuple/list
     #   (positional) or a dict (named).
+    # ctx.http_get(url, headers=None, timeout=30) -> str   (fetch a URL's body)
+    # ctx.llm(prompt, text, schema=None, model=None) -> dict|list  (OpenAI-compatible extraction)
     ...
     return [...]   # the intended member set (full set, not a delta)
 ```
@@ -114,7 +118,7 @@ rules/entity_collections/<collection_name>.py
 sqlite3 daas.db "SELECT code FROM entities WHERE exchange='SSE'"
 
 # 2. Edit the script, re-sync via the fd-daas-mcp CLI:
-fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli daas sync_entity_collection name=<name> --json
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli daas sync_entity_collection name=<name> --json
 ```
 
 The standalone `entity_collection_sync.py --sync <name> --dry-run` can print a plan (rule_kind, rule_script path, intended_members) but currently can't run outside the server (a `models`-import limitation), so the CLI sync above is the working path and the query in step 1 is your dry-run. `intended_members` is the count the script returned (after unknown-code skipping); `current_members` is what's in the collection now. If `intended_members` is null, the collection has no rule (manual).

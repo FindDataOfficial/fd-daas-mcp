@@ -8,8 +8,8 @@ the docs. The normal-user guide is [here](../user/index.md).
 Data fetch is **skill-driven**: skills call Python data libraries (`akshare`,
 `yfinance`, `edgar`, `edinet-tools`, `dartlab`, `world_bank_data`, `ckanapi`)
 directly and read/write `daas.db` via `sqlite3`. The consolidated
-**`fd-daas-mcp`** MCP server is the sole `.mcp.json` entry - it hosts 8 tool
-groups (`alerts`/`cron`/`composite`/`daas`/`dashboard`/`leader`/`pdf`/
+**`fd-daas-mcp`** MCP server is the sole `.mcp.json` entry - it hosts 9 tool
+groups (`alerts`/`cron`/`composite`/`daas`/`dashboard`/`gateway`/`workflow`/`pdf`/
 `research`) behind one stdio server and one Click CLI. The thin consolidation
 layer is `fd-daas-mcp/daas/fd_daas_mcp/` (`server.py`/`registry.py`/`cli.py`/
 `selfcheck.py`); each group's tool code lives in-package at
@@ -58,5 +58,5 @@ Removed CLIs: `fd-akshare`/`fd-yfinance`/`fd-dartlab`/`fd-edgar`/`fd-edinet`/`fd
 Removed skills/groups: `fd-daas-workflow-creator`, `fd-daas-scraw-scrapling`,
 `fd-daas-scrapling-scraw-creator`, `fd-daas-cli-datasource-entities-builder`,
 per-source `mcp__*` tools, and the `scrapling`/`firecrawl`/`massive` MCP groups.
-The `cron`/`alerts`/`leader`/`composite` MCPs are **not** removed - they are
+The `cron`/`alerts`/`gateway`/`workflow`/`composite` MCPs are **not** removed - they are
 folded into `fd-daas-mcp` as `<group>_<tool>`. `pdf` was restored (optional).

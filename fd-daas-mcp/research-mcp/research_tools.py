@@ -22,7 +22,6 @@ from typing import Optional
 
 from models import (
     Dashboard,
-    Entity,
     EntityCollection,
     EntityCollectionItem,
     IndicatorCollection,
@@ -135,20 +134,19 @@ def _resolve_report_data(session, r: Research) -> dict:
         ec = session.query(EntityCollection).filter_by(name=r.entity_collection_name).first()
         if ec:
             rows = (
-                session.query(EntityCollectionItem, Entity)
-                .join(Entity, EntityCollectionItem.entity_id == Entity.id)
+                session.query(EntityCollectionItem)
                 .filter(EntityCollectionItem.collection_id == ec.id)
                 .order_by(EntityCollectionItem.sort_order)
                 .all()
             )
-            for _item, ent in rows:
+            for item in rows:
+                # entities/entity_datasource_links are dropped (fd-open-data-mcp is the
+                # entity master); only the natural key survives locally. name/ticker/
+                # exchange now resolve via the gateway and are omitted from the report.
                 entities.append(
                     {
-                        "code": ent.code,
-                        "name": ent.name,
-                        "ticker": ent.ticker,
-                        "exchange": ent.exchange,
-                        "entity_type": ent.entity_type,
+                        "entity_type": item.entity_type,
+                        "code": item.code,
                     }
                 )
 

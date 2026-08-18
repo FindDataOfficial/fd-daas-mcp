@@ -27,7 +27,7 @@ server/CLI (the single implementation). Read-only listing also works via a
   ingest downloads the model once from HuggingFace (a model fetch, not document
   egress). For a smaller/faster model set `PDF_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`.
 - **`uv run` is broken for fd-daas-mcp** - always invoke the CLI via
-  `fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli ...`.
+  `fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli ...`.
 
 ## Mental model
 
@@ -38,34 +38,34 @@ server/CLI (the single implementation). Read-only listing also works via a
    extract -> chunk (1000 chars, 200 overlap, page-aware) -> embed -> persist to
    `pdf_documents` + `pdf_chunks` + `pdf_chunks_vec`. SHA-256 dedup makes
    re-ingest a no-op. Returns `doc_id`, `chunk_count`, `status`.
-3. **Search** - `pdf_search(query, top_k=5, doc_id=None)`: embeds the query,
+3. **Search** - `pdf_search_documents(query, top_k=5, doc_id=None)`: embeds the query,
    runs KNN over `pdf_chunks_vec`, returns ranked chunks with `doc_name`,
    `page_number`, `score`. Optional `doc_id` restricts to one document.
 
 ## Commands (via the fd-daas-mcp CLI)
 
-All run from the repo root with `fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli`:
+All run from the repo root with `fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli`:
 
 ```bash
 # Ingest a local PDF
-fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli pdf ingest_document file_path=/path/to/filing.pdf --json
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli pdf ingest_document file_path=/path/to/filing.pdf --json
 
 # Ingest from a URL (edgar/cnreport/edinet filing URL)
-fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli pdf ingest_document url=https://www.sec.gov/.../10-K.pdf --json
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli pdf ingest_document url=https://www.sec.gov/.../10-K.pdf --json
 
 # Ingest raw text
-fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli pdf ingest_text text="..." name=transcript --json
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli pdf ingest_text text="..." name=transcript --json
 
 # Search
-fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli pdf search query="revenue growth" top_k=5 --json
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli pdf search_documents query="revenue growth" top_k=5 --json
 
 # Search within one document
-fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli pdf search query="dividend policy" doc_id=3 --json
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli pdf search_documents query="dividend policy" doc_id=3 --json
 
 # List / get / delete
-fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli pdf list_documents --json
-fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli pdf get_document doc_id=3 --json
-fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli pdf delete_document doc_id=3 --json
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli pdf list_documents --json
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli pdf get_document doc_id=3 --json
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli pdf delete_document doc_id=3 --json
 ```
 
 ### Cron one-shot branches (for cron-mcp batch indexing / periodic queries)
@@ -74,8 +74,8 @@ fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli pdf delete_document
 fd-daas-mcp/.venv/bin/python fd-daas-mcp/pdf-mcp/server.py --pdf-ingest /path/to/filing.pdf
 fd-daas-mcp/.venv/bin/python fd-daas-mcp/pdf-mcp/server.py --pdf-search "revenue growth"
 # also reachable via the consolidated CLI:
-fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli --pdf-ingest /path/to/filing.pdf
-fd-daas-mcp/.venv/bin/python -m cli_anything.fd_daas_mcp.cli --pdf-search "revenue growth"
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli --pdf-ingest /path/to/filing.pdf
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.cli --pdf-search "revenue growth"
 ```
 
 ## Read-only listing via sqlite3 (no extra deps)
@@ -109,9 +109,9 @@ This complements (does not replace) `daas_extract_text`/`daas_extract_file`
 - **Scanned PDFs** (image-only) yield `status="no_text"` with `chunk_count=0`;
   OCR is a future extra.
 - **Model swap**: changing `PDF_EMBEDDING_MODEL` to a different-dim model makes
-  existing vectors incompatible - `pdf_search` returns a clear dim-mismatch
+  existing vectors incompatible - `pdf_search_documents` returns a clear dim-mismatch
   error directing re-ingest.
-- **No RAG synthesis/chat tool** in v1 - `pdf_search` returns ranked chunks; feed
+- **No RAG synthesis/chat tool** in v1 - `pdf_search_documents` returns ranked chunks; feed
   them to `daas_extract_text` for synthesis.
 - **Per-doc search** fetches a wider KNN window and filters by `doc_id` (vec0 has
   no per-partition filter in this schema); fine for moderate corpora.

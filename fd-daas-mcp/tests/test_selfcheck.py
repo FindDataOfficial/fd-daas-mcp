@@ -1,7 +1,7 @@
 """Selfcheck invariants runnable as a pytest assertion (no drift from __main__)."""
 from __future__ import annotations
 
-from cli_anything.fd_daas_mcp import selfcheck
+from daas.fd_daas_mcp import selfcheck
 
 
 def test_run_invariants_returns_ok():
@@ -12,7 +12,7 @@ def test_run_invariants_returns_ok():
     )
 
 
-def test_run_invariants_has_six_checks():
+def test_run_invariants_has_seven_checks():
     result = selfcheck.run_invariants()
     names = [c["name"] for c in result["checks"]]
     assert names == [
@@ -22,10 +22,11 @@ def test_run_invariants_has_six_checks():
         "no-scheduler-thread",
         "report-no-core-failure",
         "pdf-optional-state",
+        "default-db-not-in-package",
     ]
 
 
 def test_run_invariants_tool_count_meets_baseline():
     result = selfcheck.run_invariants()
-    assert result["tool_count"] >= 170
+    assert result["tool_count"] >= 155
     assert len(result["group_counts"]) >= 6

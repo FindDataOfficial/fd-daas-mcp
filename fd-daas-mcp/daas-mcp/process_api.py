@@ -20,10 +20,7 @@ import process_tools as T
 import indicator_tools as IT
 from process_database import ProcessError as DbError
 from process_database import get_db
-from process_tools import ProcessError as ToolError
 from indicator_tools import IndicatorError as IndError
-
-_DEFAULT_BATCH = 500
 
 
 # ── model + source discovery ────────────────────────────────────
@@ -39,167 +36,6 @@ def list_source_tables() -> dict:
     return {"tables": get_db().list_source_tables()}
 
 
-# ── rule CRUD ───────────────────────────────────────────────────
-
-
-def create_rule(
-    name: str,
-    source_table: str,
-    text_column: str,
-    schema: dict,
-    prompt: Optional[str] = None,
-    model: Optional[str] = None,
-    max_chars: int = 12000,
-    datasource: Optional[str] = None,
-    enabled: bool = True,
-) -> dict:
-    """Create a processing rule bound to a scraped source table.
-
-    Args:
-        name: unique rule name.
-        source_table: scraped source-data table name (convention: scraw_<slug>).
-        text_column: the column in source_table holding the text to extract from.
-        schema: JSON Schema each extracted record must conform to.
-        prompt: optional extra instructions.
-        model: optional model name from list_models (default = first).
-        max_chars: chunk size for long text (default 12000).
-        datasource: optional daas sources.name for traceability.
-        enabled: whether run_rule will process this rule.
-    """
-    try:
-        return get_db().create_rule(
-            name=name,
-            source_table=source_table,
-            text_column=text_column,
-            schema_json=schema,
-            prompt=prompt,
-            model=model,
-            max_chars=max_chars,
-            datasource=datasource,
-            enabled=enabled,
-        )
-    except DbError as e:
-        return {"error": str(e)}
-
-
-def list_rules() -> dict:
-    """Return all processing rules."""
-    return {"rules": get_db().list_rules()}
-
-
-def get_rule(name: str) -> dict:
-    """Return one rule by name."""
-    row = get_db().get_rule(name)
-    return row if row is not None else {"error": f"rule not found: {name}"}
-
-
-def update_rule(
-    name: str,
-    source_table: Optional[str] = None,
-    text_column: Optional[str] = None,
-    schema: Optional[dict] = None,
-    prompt: Optional[str] = None,
-    model: Optional[str] = None,
-    max_chars: Optional[int] = None,
-    datasource: Optional[str] = None,
-    enabled: Optional[bool] = None,
-) -> dict:
-    """Update a rule's fields. Only provided fields change. The rule name cannot be renamed."""
-    fields = {
-        "source_table": source_table,
-        "text_column": text_column,
-        "schema_json": schema,
-        "prompt": prompt,
-        "model": model,
-        "max_chars": max_chars,
-        "datasource": datasource,
-        "enabled": enabled,
-    }
-    # drop None fields (allow None-clearable ones by passing explicit values where needed)
-    fields = {k: v for k, v in fields.items() if v is not None}
-    try:
-        return get_db().update_rule(name, **fields)
-    except DbError as e:
-        return {"error": str(e)}
-
-
-def delete_rule(name: str) -> dict:
-    """Delete a rule. Its process_results rows are removed via FK CASCADE."""
-    ok = get_db().delete_rule(name)
-    return {"deleted": name, "results_cascaded": True} if ok else {"error": f"rule not found: {name}"}
-
-
-# ── run_rule (incremental, idempotent) ──────────────────────────
-
-
-def _run_rule_impl(name: str, batch: int = _DEFAULT_BATCH) -> dict:
-    """Incremental extraction: new source rows → process_results, advance cursor."""
-    db = get_db()
-    rule = db.get_rule_row(name)
-    if rule is None:
-        return {"error": f"rule not found: {name}"}
-    if not rule.enabled:
-        return {"error": f"rule disabled: {name}"}
-
-    schema = rule.schema_json or {}
-    rows = db.fetch_source_rows(rule.source_table, rule.text_column, rule.last_rowid, batch)
-    if not rows:
-        return {
-            "rule": name,
-            "processed": 0,
-            "failed": 0,
-            "next_rowid": rule.last_rowid,
-            "up_to_date": True,
-        }
-
-    processed = 0
-    failed = 0
-    max_rowid = rule.last_rowid
-    for rowid, text in rows:
-        max_rowid = max(max_rowid, rowid)
-        result = T.extract_text(
-            text,
-            schema,
-            prompt=rule.prompt,
-            model=rule.model,
-            max_chars=rule.max_chars,
-        )
-        if "records" in result:
-            db.upsert_result(
-                rule.id,
-                rule.source_table,
-                rowid,
-                {"records": result["records"], "count": result.get("count", 0)},
-                rule.model,
-            )
-            processed += 1
-        else:
-            db.upsert_result(
-                rule.id, rule.source_table, rowid, {"error": result.get("error", "unknown"), "detail": result.get("detail")}, rule.model
-            )
-            failed += 1
-
-    db.advance_cursor(rule.id, max_rowid)
-    return {
-        "rule": name,
-        "processed": processed,
-        "failed": failed,
-        "next_rowid": max_rowid,
-        "up_to_date": len(rows) < batch,
-    }
-
-
-def run_rule(name: str, batch: int = _DEFAULT_BATCH) -> dict:
-    """Incrementally extract from a rule's source table into process_results.
-
-    Reads rows with rowid > rule.last_rowid (limited to `batch`), extracts each
-    against the rule's schema, upserts results, and advances the cursor.
-    Safe to re-run: existing results are upserted, never duplicated.
-    """
-    try:
-        return _run_rule_impl(name, batch=batch)
-    except (DbError, ToolError) as e:
-        return {"error": str(e)}
 
 
 # ── ad-hoc extraction tools ─────────────────────────────────────
@@ -385,7 +221,7 @@ def run_indicator(name: str) -> dict:
         return {"error": str(e)}
 
 
-def calculate(
+def calculate_indicator(
     source_table: str,
     date_column: str,
     value_column: str,
@@ -416,14 +252,6 @@ def calculate(
 # ── CLI branch helpers (cron-driven) ───────────────────────────
 
 
-def cli_run_rule(name: str) -> int:
-    """Run a rule in-process, print JSON summary, return exit code."""
-    try:
-        summary = _run_rule_impl(name)
-    except (DbError, ToolError) as e:
-        summary = {"error": str(e)}
-    print(json.dumps(summary, ensure_ascii=False, default=str))
-    return 0 if "error" not in summary else 1
 
 
 def cli_run_indicator(name: str) -> int:

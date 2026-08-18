@@ -45,7 +45,7 @@ Surface in plain language: name + introduction, entity coverage, time range, sou
 2. **Ask permission** before launching - "Open <name> in the browser?" Don't auto-launch.
 3. Accept -> on macOS run `open <file_url>` and confirm. Decline -> print the URL.
 
-If the `file://` path doesn't exist on disk (HTML deleted but row remains), tell the user the file is missing and suggest rebuilding (`fd-daas-dashboard-creator`) or removing the stale row (`scripts/register_dashboard.py delete --slug <slug>`).
+If the `file://` path doesn't exist on disk (HTML deleted but row remains), tell the user the file is missing and suggest rebuilding (`fd-daas-dashboard-creator`) or removing the stale row (`.claude/skills/fd-daas-dashboard-creator/scripts/register_dashboard.py delete --slug <slug>`).
 
 ## Step 4 - Query the data backing a dashboard
 
@@ -58,7 +58,7 @@ Take the first (or user-named) `source_table` from Step 2. Show columns + a few 
 ## Step 5 - Redirect build / edit / delete intent
 
 - **Build** -> `fd-daas-dashboard-creator`.
-- **Edit** -> re-run `fd-daas-dashboard-creator` (upserts by slug), or `scripts/register_dashboard.py update --slug <slug> ...` for metadata-only edits.
+- **Edit** -> re-run `fd-daas-dashboard-creator` (upserts by slug), or `.claude/skills/fd-daas-dashboard-creator/scripts/register_dashboard.py update --slug <slug> ...` for metadata-only edits.
 - **Delete** -> `uv run python .claude/skills/fd-daas-dashboard-creator/scripts/register_dashboard.py delete --slug <slug>` (removes the row + regenerates `index.html`/`daas.md`) and `rm dashboards/<slug>.html`.
 
 ## Gotchas

@@ -53,7 +53,7 @@ from daas_tools import (
     list_forms,
     create_collection,
     add_to_collection,
-    list_collection,
+    list_collection_items,
     remove_from_collection,
     list_collections,
     rename_collection,
@@ -97,6 +97,8 @@ from indicator_collection_tools import (
     reorder_indicator_collection_items,
     set_indicator_collection_item_score,
     list_indicator_collection_changes,
+    sync_indicator_collection,
+    cli_sync_indicator_collection,
 )
 from pipeline_tools import (
     create_pipeline_collection,
@@ -119,12 +121,6 @@ from pipeline_tools import (
 from process_api import (
     list_models,
     list_source_tables,
-    create_rule,
-    list_rules,
-    get_rule,
-    update_rule,
-    delete_rule,
-    run_rule,
     extract_text,
     extract_image,
     extract_file,
@@ -136,9 +132,20 @@ from process_api import (
     set_indicator_score,
     delete_indicator,
     run_indicator,
-    calculate,
-    cli_run_rule,
+    calculate_indicator,
     cli_run_indicator,
+)
+# unified rule tools (json/script/position/llm rule store) - subsume the old
+# process_api rule-CRUD tools (now backed by the `rules` table).
+from rule_tools import (
+    create_rule,
+    list_rules,
+    get_rule,
+    update_rule,
+    delete_rule,
+    test_rule,
+    run_rule,
+    cli_run_rule,
 )
 
 app.tool(list_sources)
@@ -159,7 +166,7 @@ app.tool(add_section)
 app.tool(list_forms)
 app.tool(create_collection)
 app.tool(add_to_collection)
-app.tool(list_collection)
+app.tool(list_collection_items)
 app.tool(remove_from_collection)
 app.tool(list_collections)
 app.tool(rename_collection)
@@ -200,6 +207,7 @@ app.tool(list_indicator_collection_items)
 app.tool(reorder_indicator_collection_items)
 app.tool(set_indicator_collection_item_score)
 app.tool(list_indicator_collection_changes)
+app.tool(sync_indicator_collection)
 # pipeline collection tools (managed fetch+cron collections)
 app.tool(create_pipeline_collection)
 app.tool(list_pipeline_collections)
@@ -221,6 +229,7 @@ app.tool(get_rule)
 app.tool(update_rule)
 app.tool(delete_rule)
 app.tool(run_rule)
+app.tool(test_rule)
 app.tool(extract_text)
 app.tool(extract_image)
 app.tool(extract_file)
@@ -232,7 +241,7 @@ app.tool(update_indicator)
 app.tool(set_indicator_score)
 app.tool(delete_indicator)
 app.tool(run_indicator)
-app.tool(calculate)
+app.tool(calculate_indicator)
 
 if __name__ == "__main__":
     # CLI branches for cron-mcp shell tasks: run a path in-process and exit.
@@ -296,5 +305,14 @@ if __name__ == "__main__":
             print(json.dumps({"error": "--sync-entity-collection requires a collection name"}))
             sys.exit(2)
         sys.exit(cli_sync_entity_collection(sys.argv[i + 1]))
+    # indicator-collection sync CLI branch: run sync_indicator_collection(name)
+    # in-process, print a JSON summary, exit. cron-mcp tasks invoke this via
+    # `uv run --directory mcp/daas-mcp python server.py --sync-indicator-collection <name>`.
+    if "--sync-indicator-collection" in sys.argv:
+        i = sys.argv.index("--sync-indicator-collection")
+        if i + 1 >= len(sys.argv):
+            print(json.dumps({"error": "--sync-indicator-collection requires a collection name"}))
+            sys.exit(2)
+        sys.exit(cli_sync_indicator_collection(sys.argv[i + 1]))
 
     app.run(transport="stdio", show_banner=False)

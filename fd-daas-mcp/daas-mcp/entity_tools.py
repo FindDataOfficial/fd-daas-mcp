@@ -47,13 +47,28 @@ def search_entities(
         return _err(e)
 
 
-def get_entity(entity_id: int) -> dict:
-    """Get full detail for one entity, including aliases and metadata."""
+def get_entity(
+    entity_id: Optional[int] = None,
+    entity_type: Optional[str] = None,
+    code: Optional[str] = None,
+) -> dict:
+    """Get full detail for one entity, including aliases and metadata.
+
+    Per D5/3.5 the entity master is fd-open-data-mcp. Resolve by natural
+    key (entity_type, code) when given (gateway-first, local fallback);
+    otherwise fall back to entity_id (local).
+
+    Args:
+        entity_id: The entity id (alternative to entity_type+code).
+        entity_type: 'stock' or 'country' (use with `code`).
+        code: The entity's canonical code (use with `entity_type`).
+    """
     svc = _get_service()
     try:
-        e = svc.get_entity(entity_id)
+        e = svc.get_entity(entity_id=entity_id, entity_type=entity_type, code=code)
         if e is None:
-            return {"success": False, "error": f"entity id {entity_id} not found"}
+            key = f"{entity_type}/{code}" if (entity_type and code) else f"id {entity_id}"
+            return {"success": False, "error": f"entity {key} not found"}
         return _ok({"entity": e})
     except Exception as e:
         return _err(e)
@@ -88,19 +103,30 @@ def list_entities(
         return _err(e)
 
 
-def get_entity_coverage(entity_id: int) -> dict:
+def get_entity_coverage(
+    entity_id: Optional[int] = None,
+    entity_type: Optional[str] = None,
+    code: Optional[str] = None,
+) -> dict:
     """For each datasource linked to the entity, return the identifier to
     use, the available sections (routing instructions = how to get the
     data, with an identifier-prefilled variant), and the column count/list
     aggregated from daas_function_columns. Sources without registered
     functions get a column_hint naming the sibling MCP + tool.
 
+    Per D5/3.5 entity resolution proxies through fd-open-data-mcp. Accept
+    a natural key (entity_type, code) as an alternative to entity_id.
+
     This answers: "I have company X — which datasources cover it, how many
     columns can I get, and how do I fetch it?"
     """
     svc = _get_service()
     try:
-        return _ok(svc.get_entity_coverage(entity_id))
+        return _ok(
+            svc.get_entity_coverage(
+                entity_id=entity_id, entity_type=entity_type, code=code
+            )
+        )
     except Exception as e:
         return _err(e)
 

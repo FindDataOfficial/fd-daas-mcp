@@ -1,12 +1,8 @@
 from models.models import (  # noqa: F401
     Base,
-    # leader-mcp
-    Function,
-    FunctionColumn,
-    DataSnapshot,
-    LeaderUpstream,
-    # leader-mcp crewai-data-workflow (specialist agents + workflows)
-    SpecialistAgent,
+    # gateway-mcp (upstream registry)
+    GatewayUpstream,
+    # workflow-mcp (manifest-driven runs)
     Workflow,
     WorkflowStep,
     WorkflowRun,
@@ -42,13 +38,19 @@ from models.models import (  # noqa: F401
     CompositeTool,
     CompositeChain,
     # daas-mcp (process tools — relocated from process-mcp)
-    ProcessRule,
+    Rule,
     ProcessResult,
     IndicatorRule,
     # daas-mcp indicator collections (named groups of indicators + score overrides + audit log)
     IndicatorCollection,
     IndicatorCollectionItem,
     IndicatorCollectionChange,
+    # daas-mcp entity collections (watchlists keyed on natural (entity_type, code))
+    EntityCollection,
+    EntityCollectionItem,
+    EntityCollectionChange,
+    # research-mcp (persisted research bundle: entity+indicator collections, rules, dashboard, cron)
+    Research,
     # alerts-mcp
     AlertRule,
     AlertEvent,

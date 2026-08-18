@@ -1,7 +1,7 @@
 # DaaS 指标浏览器
 
 **Slug**: `daas-indicator-explorer`
-**HTML**: `file:///Users/chengsishi/code/cli-anything/mcp/dashboard-mcp/dashboards/daas-indicator-explorer.html`
+**HTML**: `file:///Users/chengsishi/code/daas/mcp/dashboard-mcp/dashboards/daas-indicator-explorer.html`
 **Builder**: `mcp/dashboard-mcp/dashboards/build_indicator_explorer_dashboard.py` (re-run to refresh the baked data)
 
 ## 介绍

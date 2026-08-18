@@ -1,7 +1,7 @@
 """Offline self-check for the consolidated fd-daas-mcp server.
 
 ``run_invariants()`` is offline: no network, no LLM. It verifies:
-  1. registered tools (>= 170 baseline; 6 core groups always present)
+  1. registered tools (>= 155 baseline; 6 core groups always present)
   2. the known collisions are namespaced (present as bare names in 2+ groups)
   3. colliding leaf modules (registry_service, database) resolve to distinct files
   4. no APScheduler thread started (cron suppression worked)
@@ -47,7 +47,7 @@ if _u.startswith("sqlite:///") and not _u.startswith("sqlite:////"):
     if not os.path.isabs(_rel):
         os.environ["DAAS_DATABASE_URL"] = f"sqlite:///{_REPO}/{_rel}"
 
-CORE = {"alerts", "cron", "composite", "daas", "dashboard", "leader"}
+CORE = {"alerts", "cron", "composite", "daas", "dashboard", "gateway"}
 # Groups documented as dropped (not tracked for restore). See registry.py.
 # (pdf was restored as the local vector-search group - see registry.py SOURCES
 # + openspec/changes/add-pdf-vector-search; no longer listed as dropped.)
@@ -77,7 +77,9 @@ def run_invariants() -> dict[str, Any]:
 
     # [1] tool count + core groups present
     missing_core = CORE - set(counts.keys())
-    ok1 = (not missing_core) and len(tools) >= 170
+    # ponytail: P4 dissolved leader + dropped 6 generic gateway aliases
+    # (gateway 13->7); baseline lowered from 170 to 155.
+    ok1 = (not missing_core) and len(tools) >= 155
     checks.append({
         "name": "tool-count",
         "ok": ok1,
@@ -193,9 +195,9 @@ def _gateway_health_line() -> str:
     (e.g. CI without the data-fetch server). Never raises; returns a
     ``[SKIP]`` line if the probe module is unavailable or errored.
     """
-    leader = Path(__file__).resolve().parents[2] / "leader-mcp"
-    if str(leader) not in sys.path:
-        sys.path.insert(0, str(leader))
+    gateway = Path(__file__).resolve().parents[2] / "gateway-mcp"
+    if str(gateway) not in sys.path:
+        sys.path.insert(0, str(gateway))
     try:
         from gateway_tools import gateway_health_sync  # type: ignore
     except Exception as e:  # noqa: BLE001

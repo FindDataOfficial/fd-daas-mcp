@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""search.py - thin wrapper that runs pdf_search via the fd-daas-mcp CLI.
+"""search.py - thin wrapper that runs pdf_search_documents via the fd-daas-mcp CLI.
 
 Usage:
   uv run python scripts/search.py "revenue growth"
@@ -24,8 +24,8 @@ def main() -> None:
     query = sys.argv[1]
     extra = sys.argv[2:]
     kv = [f"query={query}"] + extra
-    cmd = [str(PY), "-m", "cli_anything.fd_daas_mcp.cli", "pdf",
-           "search", *kv, "--json"]
+    cmd = [str(PY), "-m", "daas.fd_daas_mcp.cli", "pdf",
+           "search_documents", *kv, "--json"]
     sys.exit(subprocess.call(cmd, cwd=str(REPO_ROOT)))
 
 

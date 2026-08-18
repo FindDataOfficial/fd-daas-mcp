@@ -16,17 +16,10 @@ import pytest
 _DAAS_MCP = Path(__file__).resolve().parents[1] / "daas-mcp"
 sys.path.insert(0, str(_DAAS_MCP))
 from daas_database import get_database  # noqa: E402
-from models import Entity, EntityCollection, ProcessResult, Rule  # noqa: E402
+from models import EntityCollection, ProcessResult, Rule  # noqa: E402
 import process_tools  # noqa: E402
 import rule_tools  # noqa: E402
 sys.path.remove(str(_DAAS_MCP))
-
-
-def _seed_entities() -> None:
-    sess = get_database().get_session()
-    sess.query(Entity).delete()
-    sess.add(Entity(entity_type="stock", code="600519", name="贵州茅台", exchange="SSE"))
-    sess.commit()
 
 
 def _make_scraw_table() -> str:
@@ -53,7 +46,6 @@ def _cleanup_rules() -> None:
 
 
 def test_crud_round_trip_json_rule():
-    _seed_entities()
     _cleanup_rules()
     res = rule_tools.create_rule(
         name="zz_test_json",
@@ -125,12 +117,11 @@ def test_create_rule_script_validates_file():
 
 
 def test_test_rule_is_dry_run():
-    _seed_entities()
     _cleanup_rules()
     rule_tools.create_rule(
         name="zz_test_dry",
         rule_type="json",
-        config_json='{"entity_type":"stock","exchange":"SSE"}',
+        config_json='{"entity_type":"stock","codes":["600519"]}',
     )
     out = rule_tools.test_rule(name="zz_test_dry")
     assert "error" not in out, out
@@ -170,7 +161,6 @@ def test_run_rule_rows_writes_process_results_and_advances_cursor(monkeypatch):
 
 
 def test_delete_rule_nulls_collection_rule_id():
-    _seed_entities()
     _cleanup_rules()
     rule_tools.create_rule(
         name="zz_test_del",

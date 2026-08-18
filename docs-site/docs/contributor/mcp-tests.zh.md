@@ -31,7 +31,7 @@ fd-daas-mcp/bin/fd-daas-mcp-server
 ```
 fd-daas-mcp/
   daas/fd_daas_mcp/    # server.py / registry.py / cli.py / selfcheck.py
-  <group>-mcp/         # alerts/cron/composite/daas/dashboard/leader/pdf/research
+  <group>-mcp/         # alerts/cron/composite/daas/dashboard/gateway/workflow/pdf/research
   bin/fd-daas-mcp-server
   tests/               # 离线 pytest 套件
   pyproject.toml

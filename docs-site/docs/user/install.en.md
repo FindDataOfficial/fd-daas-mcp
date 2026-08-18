@@ -36,7 +36,7 @@ The single repo-root `.env` holds:
 | `EDGAR_IDENTITY` | Your SEC EDGAR user agent. |
 | `EDINET_API_KEY` | Japan EDINET API key. |
 | `ALERTS_FEISHU_WEBHOOK_URL` | Feishu webhook for alert delivery. |
-| `LLM_*` / `LEADER_MODEL*` | Leader agent (CrewAI workflow) model config. |
+| `LLM_*` / `LEADER_MODEL*` | Gateway/workflow agent model config. |
 | `DASHBOARD_PORT` | Port for the dashboard server. |
 | `CKAN_PORTAL_URL` | CKAN portal base URL. |
 

@@ -123,7 +123,7 @@ def main():
     # Verify
     import json
     lst = db.list_all()
-    print(f"list_dashboards now returns {len(lst)} row(s).")
+    print(f"list now returns {len(lst)} row(s).")
 
 
 if __name__ == "__main__":

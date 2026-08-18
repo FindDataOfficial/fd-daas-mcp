@@ -1,106 +1,121 @@
 ---
 name: fd-daas-fetch-data
-description: End-to-end daas data-fetching workflow - look up an entity in the daas registry, resolve which datasource covers it, and define indicators over its source data. Use this skill whenever the user names a stock/company/country/index and wants to fetch data or compute indicators for it - phrases like "查一下比亚迪在 daas 里的数据源", "find which datasource covers AAPL", "给这只股票算个 SMA 指标", "look up entity BYD and create an indicator", "这只股票有哪些数据列", or any entity + "fetch data / get coverage / create indicator". Do NOT use this skill when the user wants to scrape a brand-new website into the database or build a full dashboard (use fd-daas-dashboard-creator) or persist data to a table (use fd-daas-indicators-creator); this skill stops at indicator creation. This skill uses sqlite3 on daas.db + the skill-based-data-fetch scripts - NO MCP tools.
+description: Look up an entity in the daas registry, resolve which datasource covers it, and define an indicator over its source data — via daas_* tools + the registered `indicators` workflow manifest. Use when the user names a stock/company/country and wants coverage or an indicator ("查一下比亚迪的数据源", "find which datasource covers AAPL", "给这只股票算个 SMA"). No direct sqlite3, no dispatch.py, no run_indicator.py script.
 ---
 
-# fd-daas-fetch-data
+# fd-daas-fetch-data (thin shell)
 
-Drive the entity -> datasource-coverage -> create-indicator workflow via **sqlite3 on `daas.db`** and the **`skill-based-data-fetch`** scripts. No `mcp__*` tools, no `fd-*` CLIs. This is the foundation skill - `fd-daas-indicators-creator` (table + save) and `fd-daas-research` build on top of it.
+Drive the entity → datasource-coverage → define-indicator flow via `daas_*`
+tools + the `indicators` workflow manifest. The `daas_*` tools own entity
+resolution + coverage + indicator-rule creation (they proxy through
+fd-open-data-mcp where needed); the `indicators` manifest owns the compute +
+persist into `observations`. No direct `sqlite3` joins, no
+`scripts/dispatch.py`, no `scripts/run_indicator.py` — those moved behind
+the tools + manifest.
 
-## Mental model
+## When to use
 
-Three things must end up true when this skill finishes:
+- "查一下比亚迪在 daas 里的数据源 / find which datasource covers AAPL"
+- "给这只股票算个 SMA 指标 / create an RSI indicator over TSLA close"
+- "look up entity BYD and create an indicator"
 
-1. **The entity is resolved** - a `sqlite3` query on the `entities` table confirmed the entity exists, and you surfaced its `identifier_in_source` per linked datasource.
-2. **The covering datasource is known** - a `sqlite3` join across `entity_datasource_links` -> `sources` -> `daas_functions` -> `daas_function_columns` listed which sources cover the entity, with column counts, and `skill-based-data-fetch/scripts/dispatch.py` told you how to fetch.
-3. **At least one indicator is defined** - a `sqlite3` INSERT into `indicator_rules` (persists a binding) + `run_indicator.py` (computes + upserts), OR `run_indicator.py --calc` (ad-hoc, no persist), over a validated `source_table` + `value_column`.
+Do NOT use for: a one-shot fetch into a scraw table
+(`fd-daas-based-data-fetch` + `scripts/upsert.py`), a full research pipeline
+(`fd-daas-research`), or building a dashboard (`fd-daas-dashboard-creator`).
+This skill stops at indicator creation; it does not persist raw source data.
 
-If the user only wants steps 1-2 (no indicator), stop after step 2 and say so - do not invent an indicator.
+## Step 1 — Gather params: entity + coverage
 
-## daas.db location
+Resolve the entity, then its datasource coverage (the modern replacement for
+the `entities` JOIN `entity_datasource_links` → `sources`/`daas_functions`/
+`daas_function_columns` chain + `dispatch.py --resolve`):
 
-`DAAS_DATABASE_URL` in the repo-root `.env` points at the DB (currently `sqlite:///daas.db`). From the repo root, `sqlite3 daas.db "..."` works. The `skill-based-data-fetch` scripts read `.env` automatically.
+```python
+# entity lookup (proxies through fd-open-data-mcp)
+daas_search_entities(query="比亚迪", entity_type="stock")     # → entity_id
+# OR natural key
+daas_get_entity(entity_type="stock", code="002594")
 
-## Step 1 - Check the entities
-
-Goal: confirm the entity exists in the daas registry and surface its linked datasources.
-
-```bash
-sqlite3 daas.db "SELECT id, entity_type, code, name, ticker, exchange, country_code FROM entities WHERE name LIKE '%比亚迪%' OR ticker LIKE '%BYD%' OR code LIKE '%002594%' OR aliases LIKE '%比亚迪%'"
+# coverage: identifier per datasource + routing instructions + columns
+daas_get_entity_coverage(entity_id=<id>)
 ```
 
-1. Match case-insensitively against `name`, `ticker`, `code`, `aliases` (the `aliases` JSON column). Note the `id` for step 2.
-2. If ambiguous (multiple matches), list them and ask the user to pick.
-3. For the resolved entity, see its linked datasources directly:
+`daas_get_entity_coverage` returns, per linked datasource: the
+`identifier_in_source` to plug into fetches, the available sections (routing
+instructions = how to get the data), and the column list. Surface the columns
+and ask which series the user wants an indicator over. If the entity is not
+found or has no covering datasource, tell the user and STOP — do not invent.
 
-```bash
-sqlite3 daas.db "SELECT s.name AS source, l.identifier_in_source, l.coverage FROM entity_datasource_links l JOIN sources s ON s.id = l.source_id WHERE l.entity_id = <id>"
+## Step 2 — Create the indicator rule
+
+The modern replacement for `INSERT INTO indicator_rules`:
+
+```python
+daas_create_indicator(
+    name="spy_ma5",
+    datasource="yfinance",                 # must exist in sources (validated)
+    source_table="scraw_spy_daily",        # any table in daas.db
+    date_column="date",
+    value_column="Close",
+    op="sma",                             # see daas_list_indicator_ops()
+    params={"window": 5},
+)
 ```
 
-**Not found**: if the query returns nothing, tell the user "entity not found in the daas registry", suggest a looser `LIKE` query (e.g. a prefix), and STOP. Do not proceed to step 2. The entity may need to be added via `entity_sync.py --sync-all` (run by the user) or a manual INSERT once a datasource exists.
+Pick the op + params from the catalog: `daas_list_indicator_ops()`. The tool
+validates `datasource` exists, `source_table` + columns exist, and `op` is in
+the catalog before inserting. Indicator rules accept **any table in
+`daas.db`**, not only `scraw_*` — don't reject a user's indicator over an
+`observations` or `process_results` table.
 
-## Step 2 - Find the related datasource
+## Step 3 — Run the `indicators` manifest
 
-Goal: resolve which datasource covers the entity, and how to fetch from it.
+The manifest runs `daas_run_indicator` (the math + source-table read +
+`observations` upsert all live inside that one tool) → computes the series
+and persists it:
 
-```bash
-sqlite3 daas.db "SELECT s.name AS source, l.identifier_in_source, f.name AS function, fc.name AS column_name, fc.type
-  FROM entity_datasource_links l
-  JOIN sources s ON s.id = l.source_id
-  JOIN daas_functions f ON f.source_id = s.id
-  LEFT JOIN daas_function_columns fc ON fc.function_id = f.id
-  WHERE l.entity_id = <id>"
+```python
+workflow_run(name="indicators", params_json=json.dumps({"name": "spy_ma5"}))
 ```
 
-1. This returns, per linked datasource: `identifier_in_source` (the value to plug into the source's lookup, e.g. `AAPL` for yfinance, `002594` for an A-share) + the available functions + their columns (from `daas_function_columns`).
-2. To learn **how to fetch**, resolve the source's dispatch entry:
+Returns `outputs`: `{"result": <daas_run_indicator return>}`. The run does a
+full recompute (windowed ops need lookback) and upserts into `observations`
+keyed on `(source, function_name, indicator, date)` — idempotent on re-run.
 
-```bash
-uv run python .claude/skills/skill-based-data-fetch/scripts/dispatch.py --resolve <source>_<function>
+## Step 4 — Checkpoint handling
+
+If `status` is `paused`, the manifest hit a `type: checkpoint` step. Inspect
+the `resume_token` + the sentinel step at `sort_order=0`, decide, then:
+
+```python
+workflow_resume(run_id=<run_id>, approved=True)   # approved=False marks the run failed
 ```
 
-   This returns the Python import + call shape + example snippet (e.g. akshare -> `ak.stock_zh_a_hist(...)`, worldbank -> REST `requests.get(...)`, cnstats -> `ak.macro_china_cpi_yearly()`). See `skill-based-data-fetch/SKILL.md` for the full fetch+persist flow.
+`workflow_inspect(name="indicators")` shows the validated step plan without
+executing — use it to preview before a run.
 
-3. Surface to the user: "Datasource X covers <entity> via identifier <Y>; here are its N columns: ...". Ask which series they want an indicator over.
+## Step 5 — Surface the result
 
-**No covering datasource**: if the entity has zero rows in `entity_datasource_links`, tell the user "no datasource covers this entity yet", suggest an `INSERT INTO entity_datasource_links` (if a matching datasource exists) or the scrape skill (if a new scrape is needed), and STOP.
+Tell the user: "Indicator `<name>` created over `<source_table>.<value_column>`
+(op=<op>, params=<params>); the `indicators` manifest wrote N observations."
+For an **ad-hoc** compute (no persisted rule, no `observations` write), skip
+Step 2+3 and call `daas_calculate_indicator(source_table=..., date_column=...,
+value_column=..., op=..., params=...)` — it returns `{indicator, dates, values,
+count}` and writes nothing.
 
-## Step 3 - Create indicators
+## Hard rules
 
-Goal: define one or more indicators over the source data.
-
-1. Confirm the `source_table` + `value_column` exist (indicator rules accept **any table in `daas.db`**, not only `scraw_*`):
-
-```bash
-sqlite3 daas.db "SELECT name FROM sqlite_master WHERE type='table' AND name='scraw_spy_daily'"
-sqlite3 daas.db "PRAGMA table_info(scraw_spy_daily)"
-```
-
-2. Pick the op from the catalog + its params (e.g. `{"window": 5}` for sma/rsi/zscore):
-
-```bash
-uv run --with pandas --with numpy python .claude/skills/skill-based-data-fetch/scripts/run_indicator.py --list-ops
-```
-
-3. **To persist** (replayable, writes the `observations` table): INSERT a rule, then compute it. Validate `datasource` exists in `sources`, `source_table` + columns exist, `op` is in the catalog before inserting:
-
-```bash
-sqlite3 daas.db "INSERT INTO indicator_rules (name, datasource, function_name, source_table, date_column, value_column, op, params_json, indicator_name, enabled) VALUES ('spy_ma5','yfinance','scraw_spy_daily','scraw_spy_daily','date','Close','sma','{\"window\":5}','spy_ma5',1)"
-uv run --with pandas --with numpy python .claude/skills/skill-based-data-fetch/scripts/run_indicator.py spy_ma5
-```
-
-4. **Ad-hoc** (no persist): `--calc` returns `{indicator, dates, values, count}` and writes nothing:
-
-```bash
-uv run --with pandas --with numpy python .claude/skills/skill-based-data-fetch/scripts/run_indicator.py --calc scraw_spy_daily date Close sma window=5
-```
-
-Confirm to the user: "Indicator `<name>` created over `<source_table>.<value_column>` (op=<op>, params=<params>); run_indicator wrote N observations." or "calculate returned N values (not persisted)."
-
-## Gotchas
-
-- **Indicator rules accept any table in `daas.db`, not only `scraw_*`.** Don't reject a user's indicator over an `observations` or `process_results` table.
-- **Identifier + table/column names are validated against `^[A-Za-z_][A-Za-z0-9_]*$`** before any SQL (the `run_indicator.py` script enforces this; do it for ad-hoc queries too). If the user gives a weird name, rename it to a valid slug.
-- **`run_indicator.py` does a full recompute** (no cursor - windowed ops need lookback), then upserts into `observations` keyed on `(source, function_name, indicator, date)`. Idempotent on re-run. Backs up `daas.db` to `.bak` before writing.
-- **`sqlite3` missing**: if `sqlite3` is not on PATH, report it and STOP. Do not silently fall back.
-- This skill stops at indicator creation. To persist raw source data into a `scraw_<slug>` table, hand off to `fd-daas-indicators-creator`.
+- **Entity + coverage go through `daas_*` tools.** No direct `sqlite3` joins
+  against `entities`/`entity_datasource_links`/`sources`/`daas_functions`/
+  `daas_function_columns`; the entity master migrated to fd-open-data-mcp and
+  `daas_get_entity_coverage` returns the routing instructions `dispatch.py`
+  used to provide.
+- **Indicator-rule creation goes through `daas_create_indicator`.** No
+  `INSERT INTO indicator_rules`. The tool validates datasource + table +
+  columns + op before inserting.
+- **Compute + persist goes through `workflow_run("indicators", …)`.** No
+  `scripts/run_indicator.py`. For ad-hoc (no persist), use
+  `daas_calculate_indicator`.
+- **Validate dynamic identifiers** against `^[A-Za-z_][A-Za-z0-9_]*$` before
+  interpolating table/column names — the `daas_*` tools enforce this; do it
+  for any ad-hoc query too.

@@ -351,7 +351,7 @@ def ingest_text(
     )
 
 
-def search(
+def search_documents(
     query: str,
     top_k: int = 5,
     doc_id: int | None = None,
@@ -440,6 +440,6 @@ def cli_ingest(target: str) -> int:
 
 def cli_search(query: str) -> int:
     """Run search in-process, print JSON, return exit code."""
-    result = search(query)
+    result = search_documents(query)
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     return 0 if "error" not in result else 1

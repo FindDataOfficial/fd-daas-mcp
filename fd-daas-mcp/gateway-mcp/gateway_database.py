@@ -1,17 +1,20 @@
-"""Database + upstream-client helpers for leader-mcp's data gateway.
+"""Database + upstream-client helpers for gateway-mcp's data gateway.
 
-Mirrors leader_database.py / composite_database.py: SQLAlchemy engine + session
-factory over the shared mcp/daas.db, CRUD for the `leader_upstreams` table,
+Mirrors composite_database.py: SQLAlchemy engine + session
+factory over the shared mcp/daas.db, CRUD for the `gateway_upstreams` table,
 and a helper to build a per-call fastmcp.Client for an upstream.
 
-The `leader_upstreams` table holds the stdio launch config for each
-data-fetch MCP (yfinance, edgartools, …) so leader-mcp can launch them on
-demand after they are removed from `.mcp.json`.
+The `gateway_upstreams` table holds the stdio launch config for each MCP
+upstream the gateway can route to. The sole data-fetch upstream is
+`fd-open-data-mcp` (a concept-based semantic fetcher, launched from the DAAS
+venv as `python -m fd_open_data_mcp.server`); non-data-fetch upstreams
+(alerts-mcp, cron-mcp, …) may also be present. gateway-mcp launches them on
+demand.
 
 Usage:
     from gateway_database import get_gateway_db, build_client
     db = get_gateway_db()
-    row = db.get_upstream("yfinance")
+    row = db.get_upstream("fd-open-data-mcp")
     async with build_client(row) as client:
         tools = await client.list_tools()
 """
@@ -27,7 +30,7 @@ from fastmcp.client.transports import StdioTransport, StreamableHttpTransport
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
-from models import Base, LeaderUpstream
+from models import Base, GatewayUpstream
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +55,7 @@ def _resolve_database_url(database_url: Optional[str]) -> str:
 
 
 class GatewayDatabase:
-    """SQLAlchemy engine + session factory + CRUD for leader_upstreams."""
+    """SQLAlchemy engine + session factory + CRUD for gateway_upstreams."""
 
     def __init__(self, database_url: Optional[str] = None):
         self._database_url = _resolve_database_url(database_url)
@@ -117,16 +120,18 @@ class GatewayDatabase:
         cwd: Optional[str] = None,
         enabled: bool = True,
         description: Optional[str] = None,
+        url: Optional[str] = None,
     ) -> dict:
-        """Insert or update a leader_upstreams row by name."""
+        """Insert or update a gateway_upstreams row by name."""
         session = self.get_session()
         try:
-            row = session.query(LeaderUpstream).filter(LeaderUpstream.name == name).first()
+            row = session.query(GatewayUpstream).filter(GatewayUpstream.name == name).first()
             if row is None:
-                row = LeaderUpstream(name=name)
+                row = GatewayUpstream(name=name)
                 session.add(row)
             row.transport = transport
             row.command = command
+            row.url = url
             row.args_json = args or []
             row.env_json = env or None
             row.cwd = cwd
@@ -142,7 +147,7 @@ class GatewayDatabase:
     def get_upstream(self, name: str) -> Optional[dict]:
         session = self.get_session()
         try:
-            row = session.query(LeaderUpstream).filter(LeaderUpstream.name == name).first()
+            row = session.query(GatewayUpstream).filter(GatewayUpstream.name == name).first()
             return row.to_dict() if row else None
         finally:
             session.close()
@@ -150,9 +155,9 @@ class GatewayDatabase:
     def list_upstreams(self, include_disabled: bool = False) -> list[dict]:
         session = self.get_session()
         try:
-            q = session.query(LeaderUpstream).order_by(LeaderUpstream.name)
+            q = session.query(GatewayUpstream).order_by(GatewayUpstream.name)
             if not include_disabled:
-                q = q.filter(LeaderUpstream.enabled == True)  # noqa: E712
+                q = q.filter(GatewayUpstream.enabled == True)  # noqa: E712
             return [r.to_dict() for r in q.all()]
         finally:
             session.close()
@@ -160,7 +165,7 @@ class GatewayDatabase:
     def delete_upstream(self, name: str) -> bool:
         session = self.get_session()
         try:
-            row = session.query(LeaderUpstream).filter(LeaderUpstream.name == name).first()
+            row = session.query(GatewayUpstream).filter(GatewayUpstream.name == name).first()
             if row is None:
                 return False
             session.delete(row)
@@ -172,10 +177,38 @@ class GatewayDatabase:
     def set_enabled(self, name: str, enabled: bool) -> Optional[dict]:
         session = self.get_session()
         try:
-            row = session.query(LeaderUpstream).filter(LeaderUpstream.name == name).first()
+            row = session.query(GatewayUpstream).filter(GatewayUpstream.name == name).first()
             if row is None:
                 return None
             row.enabled = bool(enabled)
+            session.commit()
+            session.refresh(row)
+            return row.to_dict()
+        finally:
+            session.close()
+
+    def set_transport(self, name: str, transport: str) -> Optional[dict]:
+        """Flip an upstream's ``transport`` column in place (http ↔ stdio).
+
+        Used by the client-pool fallback path: when the HTTP transport's
+        ``__aenter__`` fails (endpoint unreachable / bad gateway), the pool
+        flips the row to ``stdio`` so subsequent reads launch the stdio
+        subprocess using the seeded ``command``/``args`` fields. A health
+        probe can flip it back to ``http`` once the endpoint recovers.
+
+        Only the ``transport`` column changes; ``url``/``command``/``args``/
+        ``env``/``cwd`` are preserved so either transport can be (re)built
+        from the same row.
+
+        Returns the updated row dict, or ``None`` if the upstream was not
+        found.
+        """
+        session = self.get_session()
+        try:
+            row = session.query(GatewayUpstream).filter(GatewayUpstream.name == name).first()
+            if row is None:
+                return None
+            row.transport = transport
             session.commit()
             session.refresh(row)
             return row.to_dict()

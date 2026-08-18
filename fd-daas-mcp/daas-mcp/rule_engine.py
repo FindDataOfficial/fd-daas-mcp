@@ -175,36 +175,22 @@ class RuleEngine:
 # ── json rule ───────────────────────────────────────────────────
 
 
-def _eval_json(config: dict, session: Any) -> list[int]:
-    """Apply the declarative filter to `entities` and return matching entity ids.
+def _eval_json(config: dict, session: Any) -> list[tuple[str, str]]:
+    """Apply the declarative filter and return matching natural keys.
 
-    Rule keys (AND-combined): entity_type, exchange, country_code, codes (list),
-    name_regex. Mirrors the legacy `EntityCollectionService._rule_entity_ids`.
+    Rule keys: entity_type, exchange, country_code, codes (list), name_regex.
+    After the entity-master migration (D5/3.7) there is no local `entities`
+    table, so only the explicit `codes` form is resolvable here; filter-only
+    rules (exchange/country_code/name_regex) need the gateway entity master and
+    return `[]`. Mirrors the legacy `EntityCollectionService._rule_entity_ids`.
     """
-    from models import Entity
-
-    q = session.query(Entity)
-    et = config.get("entity_type")
-    if et:
-        q = q.filter(Entity.entity_type == et)
-    ex = config.get("exchange")
-    if ex:
-        q = q.filter(Entity.exchange == ex)
-    cc = config.get("country_code")
-    if cc:
-        q = q.filter(Entity.country_code == cc)
     codes = config.get("codes")
     if codes:
-        q = q.filter(Entity.code.in_(list(codes)))
-    name_regex = config.get("name_regex")
-    if name_regex:
-        # Uses the REGEXP function registered on the daas engine. Falls back to
-        # LIKE if the operator raises (e.g. REGEXP not registered on this conn).
-        try:
-            q = q.filter(Entity.name.op("REGEXP")(name_regex))
-        except Exception:
-            q = q.filter(Entity.name.like(f"%{name_regex}%"))
-    return [e.id for e in q.all()]
+        et = config.get("entity_type") or "stock"
+        return [(et, str(c)) for c in codes]
+    # ponytail: filter-only json rules have no local entity master post-migration;
+    # resolve via gateway if ever exercised.
+    return []
 
 
 # ── script rule ─────────────────────────────────────────────────
@@ -250,51 +236,39 @@ def _eval_script(
     return result if result is not None else []
 
 
-def _normalize_to_entity_ids(items: list, session: Any) -> list[int]:
-    """Resolve a script's returned member items to entity ids.
+def _normalize_to_entity_ids(items: list, session: Any) -> list[tuple[str, str]]:
+    """Resolve a script's returned member items to natural keys (entity_type, code).
 
     Each item may be:
-      - int  -> an entity id directly
       - str  -> a stock code (entity_type defaults to 'stock')
-      - dict -> {"entity_type":..,"code":..} or {"entity_id":int}
-    Unknown items are skipped (a sync shouldn't fail over one delisted code).
+      - dict -> {"entity_type":..,"code":..}
+    int entity ids are no longer resolvable (no local `entities` table) and are
+    skipped. Unknown items are skipped (a sync shouldn't fail over one delisted code).
     """
-    ids: list[int] = []
+    keys: list[tuple[str, str]] = []
     for item in items:
-        eid = _resolve_script_item(item, session)
-        if eid is not None:
-            ids.append(eid)
-    return ids
+        key = _resolve_script_item(item, session)
+        if key is not None:
+            keys.append(key)
+    return keys
 
 
-def _resolve_script_item(item: Any, session: Any) -> Optional[int]:
-    from models import Entity
-
+def _resolve_script_item(item: Any, session: Any) -> Optional[tuple[str, str]]:
     if isinstance(item, bool):  # bool is a subclass of int; ignore
         return None
     if isinstance(item, int):
-        e = session.get(Entity, item)
-        return e.id if e else None
+        # post-migration: no local entity id mapping to resolve; skip
+        return None
     if isinstance(item, str):
-        e = (
-            session.query(Entity)
-            .filter(Entity.entity_type == "stock", Entity.code == item)
-            .first()
-        )
-        return e.id if e else None
+        return ("stock", item)
     if isinstance(item, dict):
         if item.get("entity_id") is not None:
-            e = session.get(Entity, item["entity_id"])
-            return e.id if e else None
+            # legacy integer ids no longer resolvable
+            return None
         code = item.get("code")
         if code is not None:
             et = item.get("entity_type", "stock")
-            e = (
-                session.query(Entity)
-                .filter(Entity.entity_type == et, Entity.code == code)
-                .first()
-            )
-            return e.id if e else None
+            return (et, str(code))
     return None
 
 

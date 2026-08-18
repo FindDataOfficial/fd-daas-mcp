@@ -1,7 +1,7 @@
 # MCP Tools
 
 DAAS ships one consolidated MCP server - **`fd-daas-mcp`** - as the sole entry
-in repo-root `.mcp.json`. It hosts **8 tool groups** behind one stdio server and
+in repo-root `.mcp.json`. It hosts **9 tool groups** behind one stdio server and
 one `fd-daas-mcp` Click CLI. Tools register as **`<group>_<tool>`** (e.g.
 `daas_search_entities`, `research_create`, `pdf_ingest_document`).
 
@@ -24,7 +24,7 @@ fd-daas-mcp/bin/fd-daas-mcp-server             # launch the server
 fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.selfcheck   # offline invariants
 ```
 
-## The 8 groups
+## The 9 groups
 
 | Group | Prefix | Covers |
 | --- | --- | --- |
@@ -33,7 +33,8 @@ fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.selfcheck   # offline invariant
 | `dashboard` | `dashboard_*` | Standalone-HTML dashboard registry CRUD + index regen. |
 | `cron` | `cron_*` | DB-stored tasks + schedules + execution history. |
 | `alerts` | `alerts_*` | Alert rules, channels, series, events over `observations`/`scraw_*`. |
-| `leader` | `leader_*` | CrewAI DataCrew + specialist agents + workflows + registry. |
+| `gateway` | `gateway_*` | Upstream MCP registry CRUD + call routing to fd-open-data-mcp. |
+| `workflow` | `workflow_*` | Manifest-driven workflow CRUD + run/resume/inspect + LLM builder. |
 | `pdf` | `pdf_*` | Local PDF/text vector search (sqlite-vec). Optional - gated on `sqlite-vec`. |
 | `composite` | `composite_*` | Compose multiple upstream MCP servers + chained tool pipelines. |
 
@@ -45,7 +46,7 @@ See [Tool Groups](groups.md) for the per-group tool lists.
 
 ## Not removed
 
-The `cron` / `alerts` / `leader` / `composite` groups are **not** removed -
+The `cron` / `alerts` / `gateway` / `workflow` / `composite` groups are **not** removed -
 they are folded into `fd-daas-mcp` as `<group>_<tool>`. The dropped
 `scrapling` / `firecrawl` / `massive` MCP groups and the per-source `mcp__*`
 tools are gone; do not reference them.

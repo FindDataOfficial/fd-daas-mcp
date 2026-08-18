@@ -21,17 +21,22 @@ from composite_tools import (
     add_chained_tool,
     add_tool,
     add_upstream,
-    create_composite,
+    create,
+    create_manifest,
+    delete_manifest,
+    list,  # noqa: A004 (intentional: registers as composite_list)
     list_available_tools,
     list_chained_tools,
-    list_composite_tools,
-    list_composites,
+    list_manifests,
+    list_tools,
     list_upstreams,
     make_chain_tool,
     make_proxy_tool,
+    make_workflow_tool,
     remove_chained_tool,
     remove_tool,
     remove_upstream,
+    update_manifest,
 )
 from ui_tools import register as register_ui_tools
 
@@ -44,18 +49,22 @@ logger = logging.getLogger("composite-mcp")
 app = FastMCP(name="composite-mcp")
 
 # ── management tools (always present) ─────────────────────────
-app.add_tool(list_composites)
-app.add_tool(create_composite)
+app.add_tool(list)
+app.add_tool(create)
 app.add_tool(list_upstreams)
 app.add_tool(add_upstream)
 app.add_tool(remove_upstream)
 app.add_tool(list_available_tools)
 app.add_tool(add_tool)
 app.add_tool(remove_tool)
-app.add_tool(list_composite_tools)
+app.add_tool(list_tools)
 app.add_tool(add_chained_tool)
 app.add_tool(remove_chained_tool)
 app.add_tool(list_chained_tools)
+app.add_tool(create_manifest)
+app.add_tool(update_manifest)
+app.add_tool(delete_manifest)
+app.add_tool(list_manifests)
 
 # ── demo MCP-Apps UI tools (always present) ──────────────────
 # render_stock_summary + the ui:// resource template it links to. Lets the
@@ -71,10 +80,10 @@ def build_served_tools(app: FastMCP, composite_name: str | None = None) -> None:
 
     Proxied tools are registered as lazy `FunctionTool` stubs (see
     `make_proxy_tool`): the upstream is spawned ONLY when the stub is called,
-    never at list time. This avoids a nested stdio spawn when leader-mcp lists
+    never at list time. This avoids a nested stdio spawn when gateway-mcp lists
     composite-mcp's tools — the previous `create_proxy` + `app.mount` approach
     eagerly spawned the upstream at list time and failed with "Connection
-    closed" inside the leader-mcp server context.
+    closed" inside the gateway-mcp server context.
     """
     if composite_name is None:
         composite_name = os.environ.get("COMPOSITE")
@@ -88,6 +97,7 @@ def build_served_tools(app: FastMCP, composite_name: str | None = None) -> None:
         return
 
     upstreams_by_key = {u["key"]: u for u in spec["upstreams"]}
+    comp = spec["composite"]
 
     # register each selected proxied tool as a lazy stub. Listing these stubs
     # is DB-driven (name + description); the upstream is spawned on call only.
@@ -106,6 +116,20 @@ def build_served_tools(app: FastMCP, composite_name: str | None = None) -> None:
         tool = make_chain_tool(c["name"], c["steps"], upstreams_by_key, c["description"])
         app.add_tool(tool)
         logger.info("registered chain %r (%d steps)", c["name"], len(c["steps"]))
+
+    # manifest-mode: surface each embedded workflow name as a lazy tool that
+    # runs the workflow engine on call. The engine is imported inside the tool
+    # body, so listing these never imports workflow-mcp (mirrors the proxied/chain
+    # spawn-on-call pattern).
+    for wf in comp.get("workflows") or []:
+        app.add_tool(make_workflow_tool(wf))
+        logger.info("registered workflow tool %r", wf)
+
+    # apply the composite's system prompt to the FastMCP surface, if set.
+    prompt = comp.get("prompt")
+    if prompt:
+        app.instructions = prompt  # ponytail: post-construction set; app is created at module level
+        logger.info("applied composite prompt (%d chars)", len(prompt))
 
 
 build_served_tools(app)

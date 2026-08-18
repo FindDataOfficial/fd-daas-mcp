@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-# Make fd-daas-mcp/ (the cli_anything package) and models/ importable regardless
+# Make fd-daas-mcp/ (the daas package) and models/ importable regardless
 # of the cwd pytest was invoked from.
 _FD_HOME = Path(__file__).resolve().parents[1]
 if str(_FD_HOME) not in sys.path:
@@ -33,7 +33,7 @@ os.environ.setdefault("DAAS_DATABASE_URL", f"sqlite:///{_TMPDIR}/test.db")
 # Override any inherited DAAS_DATABASE_URL so tests never touch the real DB.
 os.environ["DAAS_DATABASE_URL"] = f"sqlite:///{_TMPDIR}/test.db"
 
-from cli_anything.fd_daas_mcp import registry  # noqa: E402
+from daas.fd_daas_mcp import registry  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

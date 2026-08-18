@@ -6,7 +6,7 @@ temp SQLite DB. Exercises:
   1. pdf_ingest_text (chunk + embed + persist)
   2. SHA-256 dedup (re-ingest same text -> deduped=true)
   3. pdf_ingest_document (PDF extraction path via a generated PDF)
-  4. pdf_search ranking (relevant doc ranks first)
+  4. pdf_search_documents ranking (relevant doc ranks first)
   5. doc_id filter
   6. pdf_list_documents / pdf_get_document
   7. pdf_delete_document cascade
@@ -100,14 +100,14 @@ def main() -> int:
     doc_pdf = rd.get("doc_id")
 
     # 5. search ranking - "revenue growth" should rank docA first
-    s = pdf_tools.search(query="revenue growth", top_k=5)
+    s = pdf_tools.search_documents(query="revenue growth", top_k=5)
     top = s.get("results", [])
     check("search_returns_results", s.get("count", 0) > 0 and len(top) > 0, str(s)[:200])
     check("search_ranking", bool(top) and top[0].get("doc_name") == "docA",
           f"top={top[0].get('doc_name') if top else None}")
 
     # 6. doc_id filter - restrict to docB
-    sf = pdf_tools.search(query="factory units", top_k=5, doc_id=doc_b)
+    sf = pdf_tools.search_documents(query="factory units", top_k=5, doc_id=doc_b)
     filtered_ok = all(r.get("doc_id") == doc_b for r in sf.get("results", []))
     check("search_doc_id_filter", filtered_ok and sf.get("count", 0) > 0, str(sf)[:200])
 
@@ -120,13 +120,13 @@ def main() -> int:
     # 8. delete cascade - chunks + vectors gone, search no longer returns it
     dl = pdf_tools.delete_document(doc_pdf)
     check("delete_document", dl.get("deleted") == doc_pdf and dl.get("chunks_removed", 0) > 0, str(dl))
-    sd = pdf_tools.search(query="revenue", top_k=20)
+    sd = pdf_tools.search_documents(query="revenue", top_k=20)
     check("delete_cascade", all(r.get("doc_id") != doc_pdf for r in sd.get("results", [])),
           f"deleted doc still in results? {[r.get('doc_id') for r in sd.get('results', [])]}")
 
     # 9. dim-mismatch error after a model swap
     embedding_client.set_embedder(embedding_client.FakeEmbedder(dim=128))  # different dim
-    sm = pdf_tools.search(query="revenue")
+    sm = pdf_tools.search_documents(query="revenue")
     check("dim_mismatch_error", "error" in sm and "mismatch" in sm.get("error", "").lower(),
           str(sm)[:160])
     # restore for any later checks
