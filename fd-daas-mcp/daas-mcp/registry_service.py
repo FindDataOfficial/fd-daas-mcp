@@ -6,7 +6,6 @@ Query layer over SQLAlchemy models — search, detail, categories, list.
 from __future__ import annotations
 
 import json
-import re
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -31,72 +30,6 @@ from models import (
     Rule,
 )
 from rule_engine import RuleEngine, legacy_shim, script_config_from_path
-
-
-# Routing-grammar helpers for entity coverage. The seed (seed_external_mcps)
-# writes section `instruction` strings as `mcp=<mcp> tool=<tool>
-# [param=<key>=<value>]*`. <ask-agent> marks a value the agent must supply.
-_ROUTING_RE = re.compile(r"^mcp=(\S+)\s+tool=(\S+)(?:\s.*)?$")
-# Param keys that carry an entity identifier — substituting
-# identifier_in_source into these yields a directly runnable instruction.
-# Other <ask-agent> params (params_json, selector, date, detail, ...) are left.
-_IDENT_PARAM_RE = re.compile(
-    r"^(ticker_or_cik|ticker_or_name|ticker_or_code|ticker|symbol|code)$"
-)
-
-
-class _EntityRef:
-    """Lightweight resolved-entity record (id + natural key) returned by
-    `EntityCollectionService._resolve_entity` when the entity comes from the
-    fd-open-data-mcp gateway rather than the local `entities` table. Carries
-    only the fields the collection write path reads (id, entity_type, code).
-    """
-
-    __slots__ = ("id", "entity_type", "code")
-
-    def __init__(self, id, entity_type, code):
-        self.id = id
-        self.entity_type = entity_type
-        self.code = code
-
-
-def _gateway_get_entity(entity_type: str, code: str):
-    """Resolve (entity_type, code) via the fd-open-data-mcp gateway.
-
-    Returns the upstream entity dict ({id, entity_type, code, name_en,
-    name_zh, metadata}) on success, or None if the gateway is unreachable,
-    errors, or the entity is not found — the caller then falls back to the
-    local `entities` table. Gateway modules live in the `gateway-mcp` package
-    (a separate group, evicted after registry harvest), so they are imported
-    lazily with that dir briefly on sys.path.
-    """
-    import json
-    import sys
-    from pathlib import Path
-
-    try:
-        gateway_dir = str(Path(__file__).resolve().parents[1] / "gateway-mcp")
-        _added = gateway_dir not in sys.path
-        if _added:
-            sys.path.insert(0, gateway_dir)
-        try:
-            from gateway_tools import call_data_mcp_sync
-        finally:
-            if _added:
-                sys.path.remove(gateway_dir)
-        resp = call_data_mcp_sync(
-            "fd-open-data-mcp",
-            "get_entity",
-            json.dumps({"entity_type": entity_type, "code": code}),
-        )
-    except Exception:
-        return None
-    if not isinstance(resp, dict) or "error" in resp:
-        return None
-    result = resp.get("result")
-    if not isinstance(result, dict):
-        return None
-    return result
 
 
 def _resolve_effective_score(
@@ -1310,26 +1243,6 @@ class RegistryService:
             out.append(token)
         return " ".join(out)
 
-    def link_entity_datasource(
-        self,
-        entity_id: int,
-        source_name: str,
-        identifier_in_source: Optional[str] = None,
-        coverage: str = "full",
-        metadata: Optional[dict] = None,
-    ) -> dict:
-        # The entity master + entity→datasource links moved to fd-open-data-mcp
-        # (D5/3.7 dropped `entities`/`entity_datasource_links`). No local store.
-        raise NotImplementedError(
-            "link_entity_datasource removed: entity→datasource links live in "
-            "fd-open-data-mcp, not daas.db (post-3.7)"
-        )
-
-    def unlink_entity_datasource(self, entity_id: int, source_name: str) -> dict:
-        raise NotImplementedError(
-            "unlink_entity_datasource removed: entity→datasource links live in "
-            "fd-open-data-mcp, not daas.db (post-3.7)"
-        )
 
 
 class EntityCollectionService:
