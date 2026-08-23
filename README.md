@@ -1,11 +1,86 @@
 # DAAS - Data As a Service
 
+> 📖 **Quick Start**: [QUICKSTART.md](QUICKSTART.md) (curl → install → ask your AI) · 中文文档: [README_zh.md](README_zh.md)
+
 Layered data platform for financial, economic, and statistical data — a single SQLite file (`daas.db`) behind a consolidated MCP server, with data fetch delegated down to the `fd-open-data-mcp` upstream.
 
 > **What is this?** A local data platform that turns Python data libraries (`akshare`, `yfinance`, `edgar`, `edinet-tools`, `dartlab`, `world_bank_data`, `ckanapi`) into a queryable, indicator-computing, dashboard-ready store backed by one SQLite file. You drive it through **Claude Code skills** (thin shells that call workflow manifests) or through the **consolidated `fd-daas-mcp` MCP server** — both paths read/write the same database.
 
-> **Upstream:** The `fd-open-data-mcp` data-fetcher is a sibling repo at `~/finddata/fd-open-data-mcp` (cloned automatically by `install.sh`).
+---
 
+## One command → your AI agent runs the whole platform
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/FindDataTechnology/fd-daas-mcp/master/install.sh | sh
+```
+
+That single command clones DAAS + the `fd-open-data-mcp` upstream, provisions both venvs, inits `daas.db`, and localizes `.mcp.json` to your paths. When it prints `done: ~/code/DAAS`, **161 MCP tools** and **18 Claude Code skills** are deployed and wired up — no further setup.
+
+Now open the folder in your AI agent and ask in plain language:
+
+```bash
+cd ~/code/DAAS
+claude
+```
+
+Then just say things like:
+
+- *"fetch SPY's daily OHLC and compute a 5-day SMA"*
+- *"build a dashboard of these indicators"*
+- *"alert me when RSI crosses 70"*
+- *"schedule this fetch nightly"*
+
+The agent has both surfaces ready — the **161 MCP tools** across 9 groups (`daas · cron · alerts · dashboard · composite · research · pdf · gateway · workflow`) auto-load from `.mcp.json`, and the **18 skills** under `.claude/skills/` are thin playbooks the agent invokes when a task matches (`fd-daas-based-data-fetch` handles resolve → fetch → persist, `fd-daas-research` orchestrates a full study, etc.).
+
+Verify the install is healthy (or just ask the agent to run them):
+
+```bash
+fd-daas-mcp/.venv/bin/fd-daas-mcp doctor            # path + schema + row counts
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.selfcheck   # 161 tools, failed=0
+```
+
+A real first fetch (the agent runs the same thing when you ask it to):
+
+```bash
+uv run python .claude/skills/fd-daas-based-data-fetch/scripts/run_indicator.py SPY_ma5
+sqlite3 daas.db "SELECT source, COUNT(*) FROM observations GROUP BY source"
+```
+
+> The Quick Start commands above are verified against this repo: `SPY_ma5` is a real `indicator_rules` row, and the `fd-daas-mcp` registry reports **161 tools across 9 sources** (`failed=0, skipped_optional=1` for the optional `pdf` group).
+
+Requirements: Python 3.10+ and `uv` — the script installs `uv` itself if it's missing. Env overrides: `DAAS_DEST` (default `~/code/DAAS`), `DAAS_BRANCH` (default `master`), `FINDDATA_HOME` (default `~/finddata`). `dartlab` fetches need 3.12: `uv run --python 3.12 --with dartlab ...`. Optional credentials (`HTTP_PROXY`, `EDGAR_IDENTITY`, `EDINET_API_KEY`, `LLM_*`, `ALERTS_FEISHU_WEBHOOK_URL`) go in a repo-root `.env` — see [Environment Variables](#environment-variables).
+
+> **Non-Claude-Code MCP client?** The 161 tools work in any MCP-aware client (Cursor, Cline, …). The skills are a Claude-Code convenience layer — optional, not required to drive the server.
+
+<details>
+<summary>Manual install (skip the curl script)</summary>
+
+```bash
+git clone -b master https://github.com/FindDataTechnology/fd-daas-mcp.git ~/code/DAAS
+cd ~/code/DAAS
+
+# 1. venv (data libs are declared deps)
+uv sync
+
+# 2. database — creates daas.db (full schema + dep-free starter catalog).
+#    DAAS_DATABASE_URL is OPTIONAL: unset, it defaults to ./daas.db (writable
+#    cwd) or ~/.fd-daas-mcp/daas.db. Set it only to relocate.
+fd-daas-mcp/.venv/bin/fd-daas-mcp init       # one-shot provision + seed
+fd-daas-mcp/.venv/bin/fd-daas-mcp doctor      # read-only health check
+
+# 3. .env — add the source keys you need (see Environment Variables)
+
+# 4. launch / health-check the consolidated server
+fd-daas-mcp/bin/fd-daas-mcp-server                       # stdio server (what .mcp.json launches)
+fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.selfcheck   # registry + tool health (target: failed=0)
+```
+
+If you skipped `install.sh`, the `fd-open-data-mcp` upstream still needs to be cloned (it's a path-dependency of `fd-daas-mcp`). The curl script does this for you; see `install.sh` for the exact sibling layout under `~/finddata`.
+
+</details>
+
+> **Upstream:** The `fd-open-data-mcp` data-fetcher is a sibling repo at `~/finddata/fd-open-data-mcp` (cloned automatically by `install.sh`).
+>
 > **Docs site:** The full, role-based documentation lives at `docs-site/` (MkDocs Material, EN+ZH bilingual). Read it locally with `uv run mkdocs serve` (browses at `/DAAS/`), or build strictly with `uv run mkdocs build --strict`. See [`docs-site/README.md`](docs-site/README.md) for build/serve/deploy.
 
 ---
@@ -29,53 +104,6 @@ L0  fd-open-data-mcp       (sole data-fetch upstream; concept-based semantic fet
 The fetch skills (`fd-daas-based-data-fetch`, `fd-daas-fetch-data`, `fd-daas-research`) are thin shells: parameter-gathering → `workflow_run(name, params)` → checkpoint handling. They no longer call Python data libraries directly — fetch goes down through L1→L0.
 
 For the full architecture, conventions, and the `daas.db` schema reference, see [`CLAUDE.md`](CLAUDE.md) and [`construction/mcp.md`](construction/mcp.md).
-
----
-
-## Install & Quick Start
-
-Requirements: Python 3.10+ and [uv](https://docs.astral.sh/uv/). `dartlab` fetches need 3.12 — run them with `uv run --python 3.12 --with dartlab ...`.
-
-One-click install (clones DAAS + upstreams, provisions venvs, inits `daas.db`, localizes `.mcp.json`):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/FindDataTechnology/fd-daas-mcp/master/install.sh | sh
-```
-
-Env overrides: `DAAS_DEST` (default `~/code/DAAS`), `DAAS_BRANCH`, `FINDDATA_HOME` (default `~/finddata`). Manual steps below.
-
-```bash
-# 1. Provision the root venv (data libs are declared deps)
-uv sync
-
-# 2. Provision the database - creates daas.db (full schema + dep-free starter
-#    catalog of sources). DAAS_DATABASE_URL is OPTIONAL: unset, it defaults to
-#    ./daas.db (writable cwd) or ~/.fd-daas-mcp/daas.db. Set it only to relocate.
-fd-daas-mcp/.venv/bin/fd-daas-mcp init       # one-shot provision + seed
-fd-daas-mcp/.venv/bin/fd-daas-mcp doctor      # read-only health check (path, schema, row counts)
-
-# 3. Configure credentials - create a repo-root .env for the source keys you need
-#    (listed in Environment Variables below). Scripts auto-load .env; no manual export.
-
-# 4. Compute an existing indicator (upserts into observations)
-uv run python .claude/skills/fd-daas-based-data-fetch/scripts/run_indicator.py SPY_ma5
-
-# 5. Query daas.db directly (db lives at the resolved DAAS_DATABASE_URL, default ./daas.db)
-sqlite3 daas.db "SELECT name, datasource, op FROM indicator_rules LIMIT 10"
-sqlite3 daas.db "SELECT source, COUNT(*) FROM observations GROUP BY source"
-
-# 6. Launch / health-check the consolidated server
-fd-daas-mcp/bin/fd-daas-mcp-server                       # stdio server (what .mcp.json launches)
-fd-daas-mcp/.venv/bin/python -m daas.fd_daas_mcp.selfcheck   # registry + tool health check (target: failed=0)
-
-# 7. Run a workflow manifest (L2 — the fetch path goes L1→L0)
-fd-daas-mcp/.venv/bin/python -c "
-from daas_mcp_workflow_tools import workflow_run   # or via the MCP tool
-print(workflow_run('fetch-and-persist', params_json='{\"entity\":\"SPY\",\"indicator\":\"ma5\"}'))
-"
-```
-
-The Quick Start commands above have been verified against this repo: `SPY_ma5` is a real `indicator_rules` row, and the `fd-daas-mcp` registry reports **161 tools across 9 sources** (`failed=0, skipped_optional=1` for the optional `pdf` group).
 
 ---
 
@@ -122,25 +150,23 @@ Query it directly from the repo root: `sqlite3 daas.db "SELECT …"`.
 
 ## Skills (`.claude/skills/`)
 
-Skills are plain Markdown (`SKILL.md`) + Python scripts. The fetch skills are thin shells that gather parameters and call `workflow_run` — they no longer call Python data libraries directly (fetch goes L1→L0).
+Skills are plain Markdown (`SKILL.md`) + Python scripts — thin playbooks the agent invokes automatically when a task matches. The fetch skills gather parameters and call `workflow_run`; they no longer call Python data libraries directly (fetch goes L1→L0). **18 skills ship with the repo:**
 
 | Skill | Purpose |
 |---|---|
 | **`fd-daas-based-data-fetch`** *(core fetch shell)* | Resolve an entity + indicator against `daas.db`, then `workflow_run(name, params)` to fetch via fd-open-data-mcp and persist to `scraw_*` / `observations`. |
 | `fd-daas-fetch-data` | Entity → coverage → indicator workflow (sqlite3 + the core scripts). |
+| `fd-datasource-akshare` | A-share OHLCV/fundamentals via the external `scraw-akshare` Scrapy project. |
 | `fd-daas-research` | Orchestrate analyze → [collection] → indicators → dashboard → persist as a `research` bundle + markdown report. |
 | `fd-daas-brainstorm` | Clarify a research goal via dialogue → `daas-doc/research/<plan>.md` (no `daas.db` state). |
 | `fd-daas-indicators-creator` | Persist a fetched series to a `scraw_<slug>` table (manual refresh — no cron). |
 | `fd-daas-dashboard-creator` | Build a standalone ECharts HTML dashboard + register it. |
 | `fd-daas-dashboard` | Find / open / inspect existing dashboards (read-only). |
-| `fd-daas-entities-collection-creator` / `fd-daas-entities-collection` | Define a rule-based entity collection / day-to-day collection operations. |
+| `fd-daas-entities-collection` / `-creator` | Define a rule-based entity collection / day-to-day collection operations. |
 | `fd-daas-indicators-collection-creator` | Curate an indicator collection + export CSV/markdown with resolved scores. |
 | `fd-daas-rules-creator` | Author a unified rule (json/script/position/llm), attach to a collection, dry-run, sync. |
 | `fd-daas-pdf` | Ingest a PDF/text into a local vector store (sqlite-vec) and search semantically. Requires the `[pdf]` extra. |
-| `fd-daas-scrapling-official` | Scrape anti-bot-protected pages (Cloudflare/JS render) via Scrapling. |
-| `fd-daas-skill-creator` / `fd-daas-skill-review` | Create/optimize and review/test daas skills. |
-| `fd-coding-mcp-creator` | Scaffold a user MCP composition (L3): interview → manifest → register → selfcheck. |
-| `fd-coding-skill-creator`, `fd-coding-daas-*`, `openspec-*` | Infra: create/optimize skills, reset/scraw/datasource builders, OpenSpec change lifecycle. |
+| `openspec-*` (5 skills) | Spec-driven change lifecycle: propose → apply → sync → archive. |
 
 ---
 
