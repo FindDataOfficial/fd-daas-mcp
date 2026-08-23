@@ -1,7 +1,6 @@
 """Agent runner — executes scheduled tasks and records results."""
 
 import logging
-import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone

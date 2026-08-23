@@ -6,10 +6,6 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 
-class NotifierError(Exception):
-    """Configuration/transport error from a notifier (surfaced, not raised)."""
-
-
 class Notifier(ABC):
     """Outbound channel adapter. Subclasses read their env keys at construction."""
 

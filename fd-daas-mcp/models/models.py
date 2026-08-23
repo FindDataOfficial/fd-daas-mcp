@@ -14,7 +14,6 @@ Domains:
   daas-mcp:    DaasSource, DaasFunction, DaasFunctionColumn, Observation (source-based registry)
   daas-mcp mgmt: Category, DatasourceForm, DatasourceSection, DatasourceCollection,
                  DatasourceCollectionItem, PipelineCollection, PipelineCollectionItem
-  scrapling:   ScrawConfig (scraping configs)
   dashboard:   Datasource, DatasourceColumn (dashboard metadata)
   process:    Rule (unified json/script/position/llm), ProcessResult, IndicatorRule (LLM extraction + indicators; owned by daas-mcp, relocated from process-mcp)
   entity:      EntityCollection, EntityCollectionItem, EntityCollectionChange (natural-key entity groups; master is fd-open-data-mcp)
@@ -573,44 +572,6 @@ def _json_loads(raw):
 
 
 # ═══════════════════════════════════════════════════════════════
-# scrapling-mcp domain
-# ═══════════════════════════════════════════════════════════════
-
-
-class ScrawConfig(Base):
-    __tablename__ = "scraw_configs"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    url = Column(String(2048), nullable=False)
-    name = Column(String(255), nullable=False)
-    columns_json = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-
-
-# ═══════════════════════════════════════════════════════════════
-# settings domain — centralized env configuration
-# ═══════════════════════════════════════════════════════════════
-
-
-class Setting(Base):
-    __tablename__ = "settings"
-    __table_args__ = (UniqueConstraint("scope", "key", name="uq_setting_scope_key"),)
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    scope = Column(String(64), nullable=False, index=True, default="global")
-    key = Column(String(128), nullable=False)
-    value = Column(Text, nullable=False, default="")
-    category = Column(String(16), nullable=False, default="runtime")  # 'bootstrap' | 'runtime'
-    description = Column(String, nullable=True)
-    updated_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-    )
-
-
-# ═══════════════════════════════════════════════════════════════
 # dashboard domain
 # ═══════════════════════════════════════════════════════════════
 
@@ -822,92 +783,6 @@ class CompositeChain(Base):
 def _short_uuid() -> str:
     import uuid
     return str(uuid.uuid4())[:8]
-
-
-# ═══════════════════════════════════════════════════════════════
-# cnreport-mcp domain — Chinese annual report extraction + ES index
-# ═══════════════════════════════════════════════════════════════
-
-
-class ReportDocument(Base):
-    """One fetched annual report. report_id is a stable hash of source+company+year."""
-    __tablename__ = "report_documents"
-    __table_args__ = (UniqueConstraint("report_id", name="uq_report_id"),)
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    report_id = Column(String(128), nullable=False, index=True)
-    source = Column(String(2048), nullable=False)
-    company = Column(String(255), nullable=True, index=True)
-    stock_code = Column(String(32), nullable=True, index=True)
-    year = Column(Integer, nullable=True, index=True)
-    fetched_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    raw_path = Column(String(2048), nullable=True)
-    parse_status = Column(String(16), default="ok")  # ok | partial | failed
-
-    def to_dict(self) -> dict:
-        return {
-            "report_id": self.report_id,
-            "source": self.source,
-            "company": self.company,
-            "stock_code": self.stock_code,
-            "year": self.year,
-            "fetched_at": self.fetched_at.isoformat() if self.fetched_at else None,
-            "raw_path": self.raw_path,
-            "parse_status": self.parse_status,
-        }
-
-
-class ReportSection(Base):
-    """One outline node extracted from a report. Idempotent on report_id+ordinal."""
-    __tablename__ = "report_sections"
-    __table_args__ = (
-        UniqueConstraint("report_id", "ordinal", name="uq_report_section_ordinal"),
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    report_id = Column(String(128), nullable=False, index=True)
-    ordinal = Column(Integer, nullable=False)
-    level = Column(Integer, default=1)
-    title = Column(String(512), nullable=False)
-    char_count = Column(Integer, default=0)
-    parse_status = Column(String(16), default="ok")  # ok | missing | failed
-    extracted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-    def to_dict(self) -> dict:
-        return {
-            "report_id": self.report_id,
-            "ordinal": self.ordinal,
-            "level": self.level,
-            "title": self.title,
-            "char_count": self.char_count,
-            "parse_status": self.parse_status,
-        }
-
-
-class EsIndexMeta(Base):
-    """Metadata for a cnreport-{year} Elasticsearch index."""
-    __tablename__ = "es_index_meta"
-    __table_args__ = (UniqueConstraint("index_name", name="uq_es_index_name"),)
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    index_name = Column(String(128), nullable=False, index=True)
-    doc_count = Column(Integer, default=0)
-    mapping_hash = Column(String(64), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-    )
-
-    def to_dict(self) -> dict:
-        return {
-            "index_name": self.index_name,
-            "doc_count": self.doc_count,
-            "mapping_hash": self.mapping_hash,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
 
 
 # ═══════════════════════════════════════════════════════════════
