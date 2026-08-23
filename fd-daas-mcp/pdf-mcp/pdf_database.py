@@ -182,13 +182,6 @@ def insert_document(doc: dict) -> int:
         return r.lastrowid
 
 
-def update_document(doc_id: int, **fields) -> None:
-    engine = get_engine()
-    cols = ", ".join(f"{k}=:{k}" for k in fields)
-    with engine.begin() as conn:
-        conn.execute(text(f"UPDATE pdf_documents SET {cols} WHERE id=:id"), {**fields, "id": doc_id})
-
-
 def insert_chunks(doc_id: int, chunks: list[dict]) -> list[int]:
     """Insert chunk rows, return their ids in chunk_index order."""
     engine = get_engine()
