@@ -6,7 +6,8 @@ __pycache__/
 venv/
 .pytest_cache/
 *.db
-!/daas.db
+# daas.db is a local runtime/metadata artifact (39MB) — never track it;
+# fetch/seed it locally instead of shipping it through git.
 # SQLite WAL/journal sidecars + db backups (never track the multi-file db state)
 *.db-shm
 *.db-wal
