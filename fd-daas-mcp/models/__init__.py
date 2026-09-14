@@ -24,14 +24,10 @@ from models.models import (  # noqa: F401
     # daas-mcp pipeline collections (managed fetch+cron collections)
     PipelineCollection,
     PipelineCollectionItem,
-    # scrapling
-    ScrawConfig,
     # dashboard
     Datasource,
     DatasourceColumn,
     Dashboard,
-    # settings
-    Setting,
     # composite-mcp
     Composite,
     Upstream,
@@ -54,10 +50,6 @@ from models.models import (  # noqa: F401
     # alerts-mcp
     AlertRule,
     AlertEvent,
-    # cnreport-mcp
-    ReportDocument,
-    ReportSection,
-    EsIndexMeta,
     # pdf-mcp (local PDF/text vector search - optional [pdf] extra)
     PdfDocument,
     PdfChunk,

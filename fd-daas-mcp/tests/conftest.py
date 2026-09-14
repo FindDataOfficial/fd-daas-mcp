@@ -28,9 +28,8 @@ if str(_MODELS) not in sys.path:
     sys.path.insert(0, str(_MODELS))
 
 # Throwaway DB for any import-time init_db() (cron) - never the real daas.db.
-_TMPDIR = Path(tempfile.mkdtemp(prefix="fd-daas-mcp-test-"))
-os.environ.setdefault("DAAS_DATABASE_URL", f"sqlite:///{_TMPDIR}/test.db")
 # Override any inherited DAAS_DATABASE_URL so tests never touch the real DB.
+_TMPDIR = Path(tempfile.mkdtemp(prefix="fd-daas-mcp-test-"))
 os.environ["DAAS_DATABASE_URL"] = f"sqlite:///{_TMPDIR}/test.db"
 
 from daas.fd_daas_mcp import registry  # noqa: E402

@@ -12,7 +12,7 @@ instead of aborting the whole send.
 
 New channel = one file under notifiers/ + one line in registry.REGISTRY.
 """
-from .base import Notifier, NotifierError
+from .base import Notifier
 from .registry import REGISTRY, list_channels, send
 
-__all__ = ["Notifier", "NotifierError", "REGISTRY", "list_channels", "send"]
+__all__ = ["Notifier", "REGISTRY", "list_channels", "send"]

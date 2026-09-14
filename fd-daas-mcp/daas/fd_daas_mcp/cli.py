@@ -142,10 +142,20 @@ class _LazyRegistryGroup(click.Group):
 
 
 @click.group(cls=_LazyRegistryGroup, invoke_without_command=True)
+@click.option("--transport", type=click.Choice(["stdio", "http"]), default=None)
+@click.option("--host", default=None)
+@click.option("--port", default=None, type=int)
 @click.pass_context
-def cli(ctx: click.Context) -> None:
-    """fd-daas-mcp - the consolidated DAAS MCP CLI. Run with no subcommand for REPL."""
+def cli(ctx: click.Context, transport, host, port) -> None:
+    """fd-daas-mcp - the consolidated DAAS MCP CLI. Run with no subcommand for REPL, or `serve` for HTTP."""
     if ctx.invoked_subcommand is None:
+        # Check if served via CLI args (e.g., `fd-daas-mcp --transport http`)
+        if transport == "http" or os.environ.get("MCP_TRANSPORT") == "http":
+            from daas.fd_daas_mcp.server import main as server_main
+            server_main(transport=os.environ.get("MCP_TRANSPORT") or transport,
+                        host=os.environ.get("MCP_HOST") or host or "127.0.0.1",
+                        port=int(os.environ.get("MCP_PORT") or port or 8311))
+            return
         _repl()
 
 

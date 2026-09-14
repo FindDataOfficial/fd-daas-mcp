@@ -206,18 +206,6 @@ async def call_data_mcp(server: str, tool: str, arguments: str = "{}") -> dict:
     return await _call_tool_core(server, tool, args_dict)
 
 
-def ask_data_crew(question: str) -> dict:  # noqa: ARG001 - removed, kept as a tombstone
-    """Removed: the CrewAI DataCrew NL router was deprecated when the 11
-    per-source data-fetch MCPs were replaced by the single `fd-open-data-mcp`
-    upstream. Callers should use `call_data_mcp('fd-open-data-mcp', 'read', …)`
-    (or the workflow layer for multi-step fetches) directly.
-    """
-    return {
-        "error": "ask_data_crew is removed; use call_data_mcp('fd-open-data-mcp', 'read', …) "
-                 "directly, or build_workflow_from_goal for multi-step fetches."
-    }
-
-
 # ═══════════════════════════════════════════════════════════════
 # FastMCP tools — management (CRUD over gateway_upstreams)
 # ═══════════════════════════════════════════════════════════════

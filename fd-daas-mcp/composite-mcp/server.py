@@ -38,7 +38,6 @@ from composite_tools import (
     remove_upstream,
     update_manifest,
 )
-from ui_tools import register as register_ui_tools
 
 ROOT = Path(__file__).resolve().parent.parent  # mcp/
 load_dotenv(ROOT / ".env")
@@ -65,11 +64,6 @@ app.add_tool(create_manifest)
 app.add_tool(update_manifest)
 app.add_tool(delete_manifest)
 app.add_tool(list_manifests)
-
-# ── demo MCP-Apps UI tools (always present) ──────────────────
-# render_stock_summary + the ui:// resource template it links to. Lets the
-# dashboard /chat page render a tool-returned UI via @mcp-ui/client AppRenderer.
-register_ui_tools(app)
 
 
 def build_served_tools(app: FastMCP, composite_name: str | None = None) -> None:
