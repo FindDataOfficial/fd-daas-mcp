@@ -2406,6 +2406,9 @@ class CustomerDatasetService:
         right_column,
         actor: str = "",
         channel: str = "console",
+        junction_key: str = "",
+        junction_left_column=None,
+        junction_right_column=None,
         _refresh: bool = False,
     ) -> dict:
         """LEFT-JOIN materialization (wire-transform-pipelines §1, design D4 —
@@ -2417,11 +2420,29 @@ class CustomerDatasetService:
         and writes the child (same single-writer coherence as derive/join);
         the join itself is plain standard SQL, dialect-neutral over the
         cell's SQLite/PostgreSQL data root. ``_refresh`` is set by
-        derive_refresh (lineage already verified)."""
+        derive_refresh (lineage already verified).
+
+        m:n 桥展开（wire-entity-mn-materialize design D1/D2）：给出 junction
+        三要素（junction_key + 两侧桥列）时改走**桥行驱动 INNER 对表**——
+        一条桥行一行结果；无桥关联的端点行不入结果（不产全 NULL 伪行）；
+        中间集列不进输出（纯路径）；孤儿桥（引用失存端点的桥行）被 INNER
+        丢弃并以 ``orphan_dropped`` 计数如实上报；子集主键 = 两端主键成对键。
+        同一工具单路径（不建第二物化实现）；junction 缺省时 n:1/1:1 行为
+        逐字节等价。"""
         child_key = _validate_key(child_key)
         left_key = _validate_key(left_key)
         right_key = _validate_key(right_key)
-        if child_key in (left_key, right_key):
+        junction_mode = bool(
+            junction_key or junction_left_column or junction_right_column
+        )
+        if junction_mode and not (
+            junction_key and junction_left_column and junction_right_column
+        ):
+            raise CustomerDatasetError(
+                "junction 模式须同时提供中间数据集与两侧桥列"
+                "（junction_key / junction_left_column / junction_right_column）"
+            )
+        if child_key in (left_key, right_key, junction_key):
             raise CustomerDatasetError("派生子集不能与源数据集相同")
         left_cols = self._join_key_columns(left_column, "左")
         right_cols = self._join_key_columns(right_column, "右")
@@ -2429,7 +2450,24 @@ class CustomerDatasetService:
             raise CustomerDatasetError(
                 f"左右连接列数不匹配: {len(left_cols)} vs {len(right_cols)}"
             )
+        junction_left_cols: list = []
+        junction_right_cols: list = []
+        if junction_mode:
+            junction_left_cols = self._join_key_columns(junction_left_column, "桥左")
+            junction_right_cols = self._join_key_columns(junction_right_column, "桥右")
+            if len(junction_left_cols) != len(left_cols) or len(
+                junction_right_cols
+            ) != len(right_cols):
+                raise CustomerDatasetError(
+                    f"桥列数须与两侧连接列一致: 桥左 {len(junction_left_cols)}"
+                    f" vs 左 {len(left_cols)}；桥右 {len(junction_right_cols)}"
+                    f" vs 右 {len(right_cols)}"
+                )
         spec = {"right_key": right_key, "left_columns": left_cols, "right_columns": right_cols}
+        if junction_mode:
+            spec["junction_key"] = junction_key
+            spec["junction_left_columns"] = junction_left_cols
+            spec["junction_right_columns"] = junction_right_cols
         with _tx() as cur:
             if not _refresh and cur.execute(
                 "SELECT 1 FROM customer_datasets WHERE key=?", (child_key,)
@@ -2447,9 +2485,27 @@ class CustomerDatasetService:
             ).fetchone()
             if right_meta is None:
                 raise CustomerDatasetError(f"右数据集不存在: {right_key!r}")
+            if junction_mode:
+                junction_meta = cur.execute(
+                    "SELECT columns_json FROM customer_datasets WHERE key=?",
+                    (junction_key,),
+                ).fetchone()
+                if junction_meta is None:
+                    raise CustomerDatasetError(f"中间数据集不存在: {junction_key!r}")
+                junction_names = [
+                    c["name"]
+                    for c in (json.loads(junction_meta[0]) if junction_meta[0] else [])
+                    if isinstance(c, dict)
+                ]
+                for c in junction_left_cols + junction_right_cols:
+                    if c not in junction_names:
+                        raise CustomerDatasetError(
+                            f"中间数据集连接列不存在: {c!r}"
+                        )
             left_columns = json.loads(left_meta[0]) if left_meta[0] else []
             left_pk = list(json.loads(left_meta[1])) if left_meta[1] else []
             right_columns = json.loads(right_meta[0]) if right_meta[0] else []
+            right_pk = list(json.loads(right_meta[1])) if right_meta[1] else []
             left_names = [c["name"] for c in left_columns]
             right_names = [c["name"] for c in right_columns]
             for c in left_cols:
@@ -2484,23 +2540,61 @@ class CustomerDatasetService:
                 f'r.{_quote(rc["name"])} AS {_quote(out)}'
                 for rc, out in zip(right_columns, out_right_names)
             ]
-            on_parts = [
-                f'l.{_quote(a)} = r.{_quote(b)}' for a, b in zip(left_cols, right_cols)
-            ]
-            sql = (
-                f"SELECT {', '.join(select_parts)} FROM"
-                f" {_quote(_table_name(left_key))} l"
-                f" LEFT JOIN {_quote(_table_name(right_key))} r"
-                f" ON {' AND '.join(on_parts)}"
-            )
+            if junction_mode:
+                # m:n 桥展开（wire-entity-mn-materialize design D1）：桥行驱动
+                # INNER 对表——一条桥行一行结果；无桥关联的端点行不入结果
+                #（不得产出全 NULL 伪行）；中间集列不进输出（纯路径）。
+                on_left = [
+                    f'l.{_quote(a)} = j.{_quote(b)}'
+                    for a, b in zip(left_cols, junction_left_cols)
+                ]
+                on_right = [
+                    f'r.{_quote(a)} = j.{_quote(b)}'
+                    for a, b in zip(right_cols, junction_right_cols)
+                ]
+                sql = (
+                    f"SELECT {', '.join(select_parts)} FROM"
+                    f" {_quote(_table_name(junction_key))} j"
+                    f" JOIN {_quote(_table_name(left_key))} l"
+                    f" ON {' AND '.join(on_left)}"
+                    f" JOIN {_quote(_table_name(right_key))} r"
+                    f" ON {' AND '.join(on_right)}"
+                )
+                junction_total = cur.execute(
+                    f"SELECT COUNT(*) FROM {_quote(_table_name(junction_key))}"
+                ).fetchone()[0]
+            else:
+                on_parts = [
+                    f'l.{_quote(a)} = r.{_quote(b)}' for a, b in zip(left_cols, right_cols)
+                ]
+                sql = (
+                    f"SELECT {', '.join(select_parts)} FROM"
+                    f" {_quote(_table_name(left_key))} l"
+                    f" LEFT JOIN {_quote(_table_name(right_key))} r"
+                    f" ON {' AND '.join(on_parts)}"
+                )
             raw = cur.execute(sql).fetchall()
             out_names = [c["name"] for c in out_columns]
             rows = [{c: r[i] for i, c in enumerate(out_names)} for r in raw]
+            if junction_mode:
+                # 子集主键 = 两端主键成对键（右列撞名走输出名——design D1）；
+                # 右集无主键声明时退化为左主键（与 n:1 同形，如实不加伪键）
+                rename = {
+                    rc["name"]: out
+                    for rc, out in zip(right_columns, out_right_names)
+                }
+                pair_pk = list(left_pk) + [rename.get(c, c) for c in right_pk]
+            else:
+                pair_pk = list(left_pk)
             total = self._materialize_child_tx(
-                cur, child_key, out_columns, left_pk, rows, left_key, "link", spec, actor
+                cur, child_key, out_columns, pair_pk, rows, left_key, "link", spec, actor
             )
         self._session.expire_all()
-        return {"dataset_key": child_key, "rows": total, "kind": "link"}
+        result = {"dataset_key": child_key, "rows": total, "kind": "link"}
+        if junction_mode:
+            # 孤儿桥（引用失存端点的桥行）被 INNER 丢弃——计数如实上报不静默
+            result["orphan_dropped"] = max(junction_total - total, 0)
+        return result
 
     # ── deterministic operators (wire-transform-operators) ──────────
     #
@@ -2907,6 +3001,9 @@ class CustomerDatasetService:
                 left_column=spec.get("left_columns", []),
                 right_key=spec.get("right_key", ""),
                 right_column=spec.get("right_columns", []),
+                junction_key=spec.get("junction_key", ""),
+                junction_left_column=spec.get("junction_left_columns", []),
+                junction_right_column=spec.get("junction_right_columns", []),
                 actor=actor,
                 _refresh=True,
             )
@@ -3452,6 +3549,9 @@ def link(
     right_column: str | list[str],
     actor: str = "",
     channel: str = "console",
+    junction_key: str = "",
+    junction_left_column: str | list[str] = "",
+    junction_right_column: str | list[str] = "",
 ) -> dict:
     """Materialize a LEFT JOIN of two datasets into a NEW child dataset:
     left rows fully preserved, unmatched right columns NULL. Join keys are
@@ -3463,6 +3563,12 @@ def link(
     rejects the whole call (no partial child). Re-materialization of an
     existing child goes through `derive_refresh`.
 
+    m:n 桥展开（wire-entity-mn-materialize）：给齐 junction 三要素
+    （junction_key / junction_left_column / junction_right_column）时改走
+    桥行驱动 INNER 对表——一条桥行一行结果、无桥关联端点行不入结果、
+    中间集列不进输出、孤儿桥以 ``orphan_dropped`` 计数如实上报；三要素
+    必须同给同缺。缺省时 n:1/1:1 行为逐字节等价。
+
     Args:
         child_key: Slug `^[a-z][a-z0-9_]{0,39}$` for the new child dataset.
         left_key: Left dataset key (rows all preserved; lineage parent).
@@ -3471,6 +3577,9 @@ def link(
         right_column: Right join column name, or list of names (composite).
         actor: Who initiated the materialization (audit).
         channel: Write channel label (console / data-key / agent).
+        junction_key: Junction dataset key (m:n bridge; optional).
+        junction_left_column: Junction column(s) pointing at the left keys.
+        junction_right_column: Junction column(s) pointing at the right keys.
     """
     svc = _svc()
     try:
@@ -3483,6 +3592,9 @@ def link(
                 right_column,
                 actor=actor,
                 channel=channel,
+                junction_key=junction_key,
+                junction_left_column=junction_left_column,
+                junction_right_column=junction_right_column,
             )
         )
     except Exception as e:

@@ -411,3 +411,131 @@ def test_wire_contract_payload_verbatim():
     assert "error" not in result, result
     # the wire _register_derived_child consumes rows; dataset_key matches
     assert result["rows"] == 5 and result["dataset_key"] == child
+
+
+# ── m:n bridge expansion (wire-entity-mn-materialize) ────────────────
+
+
+JUNCTION_COLS = [
+    {"name": "order_id", "type": "TEXT"},
+    {"name": "customer_id", "type": "TEXT"},
+]
+
+
+def _seed_junction(rows: list) -> str:
+    key = _key("order_customers")
+    _ingest(key, JUNCTION_COLS, rows)
+    return key
+
+
+def _bridge_args(junction: str, **overrides) -> dict:
+    # 桥展开的连接列口径：orders.order_id ↔ 桥.order_id、customers.customer_id
+    # ↔ 桥.customer_id（_link 默认 left_column=customer_id 是 n:1 用例口径）
+    args = {
+        "left_column": "order_id",
+        "junction_key": junction,
+        "junction_left_column": "order_id",
+        "junction_right_column": "customer_id",
+    }
+    args.update(overrides)
+    return args
+
+
+def test_bridge_expansion_pairs_and_orphans():
+    """桥行驱动 INNER 对表：一条有效桥行一行结果；孤儿桥丢弃并计数如实
+    上报；中间集列不进输出；子集主键 = 两端主键成对键（design D1）。"""
+    left, right = _seed_orders_customers()
+    junction = _seed_junction([
+        {"order_id": "o1", "customer_id": "c1"},
+        {"order_id": "o2", "customer_id": "c2"},
+        {"order_id": "o3", "customer_id": "c3"},
+        {"order_id": "o4", "customer_id": "c1"},
+        {"order_id": "oX", "customer_id": "c1"},  # 孤儿：左端失存
+        {"order_id": "o1", "customer_id": "cX"},  # 孤儿：右端失存
+    ])
+    child = _key("pairs")
+    r = _link(child, left, right, **_bridge_args(junction))
+    assert "error" not in r, r
+    # 6 桥行 → 4 对（两个孤儿被丢弃、如实计数）
+    assert r == {"dataset_key": child, "rows": 4, "kind": "link", "orphan_dropped": 2}
+
+    ov = _t()["customer_dataset_overview"](dataset_key=child)
+    assert "error" not in ov, ov
+    assert [c["name"] for c in ov["columns"]] == LINKED_COLUMN_NAMES  # 桥列不进输出
+    assert ov["pk_columns"] == ["order_id", "right_customer_id"]  # 成对键（撞名走输出名）
+
+    rows = _rows_sorted(child)
+    assert len(rows) == 4
+    by_order = {r["order_id"]: r for r in rows}
+    assert by_order["o1"]["name"] == "甲" and by_order["o1"]["right_customer_id"] == "c1"
+    assert by_order["o2"]["name"] == "乙" and by_order["o2"]["right_customer_id"] == "c2"
+    assert by_order["o3"]["name"] == "丙" and by_order["o3"]["right_customer_id"] == "c3"
+    assert by_order["o4"]["name"] == "甲" and by_order["o4"]["right_customer_id"] == "c1"
+    # o5 无桥 → 不入结果（不得产出全 NULL 伪行）
+    assert "o5" not in by_order
+
+
+def test_bridge_replay_after_junction_gains_rows():
+    """derive_refresh 按血缘 spec（含 junction 三要素）重连最新桥。"""
+    left, right = _seed_orders_customers()
+    junction = _seed_junction([{"order_id": "o1", "customer_id": "c1"}])
+    child = _key("pairs")
+    assert "error" not in _link(child, left, right, **_bridge_args(junction))
+    assert _t()["customer_dataset_overview"](dataset_key=child)["rows"] == 1
+
+    # 桥表新增一条有效桥 + 一条孤儿桥
+    grew = _t()["customer_dataset_write_batch"](
+        dataset_key=junction,
+        ops=[
+            {"op": "insert", "values": {"order_id": "o2", "customer_id": "c2"}},
+            {"op": "insert", "values": {"order_id": "oZ", "customer_id": "c1"}},
+        ],
+        actor="test",
+    )
+    assert "error" not in grew, grew
+
+    refreshed = _t()["customer_dataset_derive_refresh"](child_key=child, actor="test")
+    assert "error" not in refreshed, refreshed
+    assert refreshed["kind"] == "link" and refreshed["refreshed"] is True
+    assert refreshed["rows"] == 2
+    assert refreshed["orphan_dropped"] == 1
+
+
+def test_bridge_partial_args_rejected():
+    """三要素必须同给同缺（half-given 如实拒）。"""
+    left, right = _seed_orders_customers()
+    r = _link(_key("pairs"), left, right, junction_key="jx")
+    assert "error" in r and "同时提供" in r["error"]
+
+
+def test_bridge_unknown_junction_column_rejected():
+    """桥列不在中间集列快照 → 结构性错误，无半写。"""
+    left, right = _seed_orders_customers()
+    junction = _seed_junction([{"order_id": "o1", "customer_id": "c1"}])
+    r = _link(
+        _key("pairs"), left, right,
+        **_bridge_args(junction, junction_left_column="ghost"),
+    )
+    assert "error" in r and "ghost" in r["error"]
+    # 错误路径不落子集：桥表仍只有播种时的那一行（无半写佐证）
+    bridge_rows = _t()["customer_dataset_query"](dataset_key=junction)["rows"]
+    assert len(bridge_rows) == 1
+
+
+def test_bridge_row_cap_rejects_whole_batch(monkeypatch):
+    """桥模式走同一 _materialize_child_tx 行数闸：超限整批拒绝、子集不登记。"""
+    left, right = _seed_orders_customers()
+    junction = _seed_junction([
+        {"order_id": "o1", "customer_id": "c1"},
+        {"order_id": "o2", "customer_id": "c2"},
+        {"order_id": "o3", "customer_id": "c3"},
+        {"order_id": "o4", "customer_id": "c1"},
+    ])
+    # 播种后再收闸（_max_rows 调用时读 env——播种不受影响）
+    monkeypatch.setenv("CUSTOMER_DATASET_MAX_ROWS", "3")
+    child = _key("pairs")
+    r = _link(child, left, right, **_bridge_args(junction))
+    assert "error" in r
+    assert "超过上限" in r["error"] and "整批拒绝" in r["error"]
+    ov = _t()["customer_dataset_overview"](dataset_key=child)
+    assert "error" in ov  # 子集未登记（零半写）
