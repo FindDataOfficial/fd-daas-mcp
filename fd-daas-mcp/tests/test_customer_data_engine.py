@@ -565,7 +565,9 @@ class TestDerive:
         assert result["ok"] is True, result
         # 22 tools + quality (wire-asset-catalog §3 read-only quality snapshot)
         # + link (wire-transform-pipelines §1: LEFT-JOIN materializer)
-        assert result["group_counts"]["customer_dataset"] == 24
+        # + filter/project/aggregate_derive/union/sql/sql_preview
+        # (wire-transform-operators) + window (wire-window-operator) = 31.
+        assert result["group_counts"]["customer_dataset"] == 31
 
 
 # ── section 4: join_indicators ───────────────────────────────────────

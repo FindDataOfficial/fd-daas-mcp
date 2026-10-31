@@ -92,7 +92,9 @@ def test_selfcheck_per_profile():
     # + quality (wire-asset-catalog §3: read-only quality snapshot)
     # + link (wire-transform-pipelines §1 / wire-entity-link: LEFT-JOIN
     #   materializer, replayed through derive_refresh)
-    assert cell_result["group_counts"].get("customer_dataset", 0) == 24
+    # + filter/project/aggregate_derive/union/sql/sql_preview
+    #   (wire-transform-operators) + window (wire-window-operator) = 31.
+    assert cell_result["group_counts"].get("customer_dataset", 0) == 31
     default_result = selfcheck.run_invariants()
     assert "customer_dataset" not in default_result["group_counts"]
 
