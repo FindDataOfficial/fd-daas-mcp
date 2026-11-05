@@ -112,7 +112,7 @@ def _serve(db_path: str, host: str, port: int) -> None:
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802 — stdlib naming
-            if self.path.rstrip("/") not in ("/catalog.json", "/"):
+            if self.path.split("?")[0].rstrip("/") not in ("/catalog.json", "", "/"):
                 self.send_error(404)
                 return
             if token:
